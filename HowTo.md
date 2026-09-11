@@ -17,10 +17,9 @@ This guide walks you through setting up, configuring, using, and managing the `w
 
 ## 2. One-Click Setup & Launch
 
-To start `wat-this` or configure settings:
-- Simply **double-click `SETUP.bat`** in the project root.
-
-`SETUP.bat` automatically verifies your environment, ensures background services are ready, and launches the configuration wizard.
+To start using `wat-this` or customize configurations:
+- **`RUN_APP.bat`**: Double-click to launch the ambient copilot and taskbar companion immediately.
+- **`SETUP.bat`**: Double-click to open the Setup & Tier Configuration Wizard (diagnostics, model installer, knowledge notebook).
 
 ---
 

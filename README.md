@@ -84,13 +84,15 @@ flowchart TD
 
 ```
 wat-this/
-├── SETUP.bat           <-- The One-Click Setup & Launcher
+├── RUN_APP.bat         <-- One-Click Ambient Copilot Launcher
+├── SETUP.bat           <-- Setup & Configuration Wizard Launcher
 ├── README.md           <-- Documentation
 ├── HowTo.md            <-- Step-by-Step Guide
 ├── assets/             <-- Custom App Icons (.png & .ico)
 └── src/                <-- Consolidated Engine, UI & Configuration
     ├── wat_this.py         Main Ambient Agent (Tkinter Zero-DLL)
     ├── setup.py            Setup & Maintenance GUI Wizard
+    ├── verify_proof.py     Live Verification & Test Proof Suite
     ├── config_manager.py   Configuration & Tier Manager
     ├── history_manager.py  Knowledge Notebook & Markdown Exporter
     ├── tts_helper.py       Windows SAPI Text-to-Speech Engine
@@ -105,7 +107,7 @@ wat-this/
 
 - **Zero-DLL Architecture**: Built using Python 3.12 standard libraries and pure-Python modules (`tkinter`, `urllib`, `requests`, `pyperclip`, `keyboard`), fully compliant with **Windows 11 Smart App Control (SAC)** and **Windows Defender Application Control (WDAC)**.
 - **Local Inference**: Ollama REST API (`smollm2:1.7b`, `llama3.2:3b`, `mistral:7b`)
-- **Global Input**: `keyboard` OS hook + Win32 `ctypes` simulation
+- **Global Input**: Dual-engine global hotkey listener (`user32.RegisterHotKey` + `keyboard`) with modifier-release auto-copy
 - **Web Context**: Pure-Python DuckDuckGo API integration (`search_helper.py`)
 - **Configuration**: Local JSON storage (`src/config.json`) managed by `src/config_manager.py`
 
@@ -115,9 +117,13 @@ wat-this/
 
 | Action | Command / Shortcut |
 |---|---|
-| **One-Click Setup** | Double-click **`SETUP.bat`** |
-| **Launch Assistant** | Click **"Launch wat-this"** inside Setup, or run `pythonw src/wat_this.py` |
+| **One-Click Run** | Double-click **`RUN_APP.bat`** |
+| **Setup Wizard** | Double-click **`SETUP.bat`** |
 | **Trigger Explainer** | `Ctrl + Alt + Space` |
+| **Fix & Bug Detector** | `Ctrl + Alt + F` |
+| **Simplify (ELI5)** | `Ctrl + Alt + T` |
+| **Docstrings & Types** | `Ctrl + Alt + D` |
+| **Listen (TTS)** | `Ctrl + Alt + S` |
 | **Dismiss Card** | `Escape` or click anywhere on the card |
 
 For step-by-step instructions, see [HowTo.md](file:///c:/Users/jishn/Documents/project/wat-this/HowTo.md).

@@ -17,6 +17,7 @@ import urllib.request
 import urllib.parse
 import pyperclip
 import keyboard
+import queue
 import tkinter as tk
 
 # Set explicit Windows AppUserModelID so Windows gives it its own dedicated Taskbar icon
@@ -58,26 +59,45 @@ MODE_COLORS = {
 FONT_FAMILY = "Segoe UI"
 FONT_HERO    = (FONT_FAMILY, 12, "bold")
 FONT_TITLE   = (FONT_FAMILY, 10, "bold")
+FONT_SECTION = (FONT_FAMILY, 10, "bold")
 FONT_BODY    = (FONT_FAMILY, 9)
 FONT_BOLD    = (FONT_FAMILY, 9, "bold")
+FONT_SMALL   = (FONT_FAMILY, 8)
 FONT_MICRO   = (FONT_FAMILY, 8, "bold")
 FONT_CODE    = ("Consolas", 9)
+
+# Native Win32 Hotkey Mapping (MOD_CONTROL=0x0002 | MOD_ALT=0x0001 | MOD_NOREPEAT=0x4000 = 0x4003)
+WIN32_HOTKEYS = {
+    101: ("explain",   0x4003, 0x20),  # Ctrl + Alt + Space
+    102: ("fix",       0x4003, 0x46),  # Ctrl + Alt + F
+    103: ("simplify",  0x4003, 0x54),  # Ctrl + Alt + T
+    104: ("docstring", 0x4003, 0x44),  # Ctrl + Alt + D
+    105: ("tts",       0x4003, 0x53),  # Ctrl + Alt + S
+}
 
 class WatThisApp:
     def __init__(self):
         self.config = config_manager.load_config()
         self.tier_key, self.tier_spec = config_manager.get_active_tier()
-        
+
+        # Thread-safe GUI event queue
+        self.event_queue = queue.Queue()
+
         # State tracking
+        self.stop_hotkeys = threading.Event()
+        self.last_trigger_time = 0.0
         self.current_mode = "explain"
         self.active_abort_event = None
         self.is_thinking = False
+        self.is_streaming = False
+        self.is_alive = True
         self.accumulated_text = ""
         self.current_snippet = ""
         self.conversation_history = []
         self.status_index = 0
         self.status_states = ["Gathering context.", "Gathering context..", "Gathering context..."]
         self.linger_timer_id = None
+        self.gui_queue_timer_id = None
         self.hud_visible = False
         self.chat_expanded = False
         self.start_time = None
@@ -86,7 +106,9 @@ class WatThisApp:
         # Build Taskbar Companion Window + Floating Cursor HUD
         self.init_taskbar_window()
         self.init_hud_overlay()
+        self.process_gui_queue()
         self.register_all_hotkeys()
+        self.start_win32_hotkey_listener()
 
         print(f"[DEPLOYED] wat-this Active. Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
         print("Taskbar Companion active. Press hotkey anytime to trigger overlay.")
@@ -217,12 +239,29 @@ class WatThisApp:
         self.root.iconify()
 
     def quit_app(self):
+        self.is_alive = False
+        if self.active_abort_event:
+            self.active_abort_event.set()
         tts_helper.stop_speech()
+        self.stop_hotkeys.set()
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+        if self.gui_queue_timer_id:
+            try:
+                self.root.after_cancel(self.gui_queue_timer_id)
+            except Exception:
+                pass
         try:
             keyboard.unhook_all_hotkeys()
         except Exception:
             pass
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
         sys.exit(0)
 
     # ---------------------------------------------------------------------------
@@ -351,11 +390,83 @@ class WatThisApp:
             except Exception:
                 pass
 
+    def process_gui_queue(self):
+        try:
+            while not self.event_queue.empty():
+                msg_type, data = self.event_queue.get_nowait()
+                if msg_type == "hotkey":
+                    self.handle_hotkey(data)
+                elif msg_type == "tts":
+                    self.speak_current_content()
+                elif msg_type == "token":
+                    self.append_streaming_token(data)
+                elif msg_type == "finished":
+                    self.on_stream_finished()
+                elif msg_type == "error":
+                    self.on_system_error(data)
+                elif msg_type == "reset_chat":
+                    self.reset_for_new_stream()
+        except Exception:
+            pass
+
+        if self.is_alive:
+            try:
+                if self.root.winfo_exists():
+                    self.gui_queue_timer_id = self.root.after(16, self.process_gui_queue)
+            except Exception:
+                pass
+
+    def start_win32_hotkey_listener(self):
+        t = threading.Thread(target=self._win32_hotkey_worker, daemon=True)
+        t.start()
+
+    def _win32_hotkey_worker(self):
+        user32 = ctypes.windll.user32
+        class MSG(ctypes.Structure):
+            _fields_ = [
+                ("hwnd", ctypes.c_void_p),
+                ("message", ctypes.c_uint),
+                ("wParam", ctypes.c_void_p),
+                ("lParam", ctypes.c_void_p),
+                ("time", ctypes.c_ulong),
+                ("pt_x", ctypes.c_long),
+                ("pt_y", ctypes.c_long),
+                ("lPrivate", ctypes.c_ulong),
+            ]
+        msg = MSG()
+        # Initialize thread message queue
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
+        for hkid, (mode_name, mods, vk) in WIN32_HOTKEYS.items():
+            res = user32.RegisterHotKey(None, hkid, mods, vk)
+            if res:
+                print(f"[HOTKEY] Native Win32 hotkey registered: ID {hkid} ({mode_name})")
+            else:
+                print(f"[WARN] Could not register native Win32 hotkey {hkid} ({mode_name})")
+
+        while not self.stop_hotkeys.is_set():
+            if user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                if msg.message == 0x0312:  # WM_HOTKEY
+                    hkid = msg.wParam
+                    if hkid in WIN32_HOTKEYS:
+                        mode_name = WIN32_HOTKEYS[hkid][0]
+                        if mode_name == "tts":
+                            self.event_queue.put(("tts", None))
+                        else:
+                            self.event_queue.put(("hotkey", mode_name))
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+            else:
+                time.sleep(0.01)
+
+        for hkid in WIN32_HOTKEYS:
+            user32.UnregisterHotKey(None, hkid)
+
     def on_hotkey_triggered(self, mode="explain"):
-        self.root.after(0, lambda: self.handle_hotkey(mode))
+        self.event_queue.put(("hotkey", mode))
 
     def on_tts_triggered(self):
-        self.root.after(0, self.speak_current_content)
+        self.event_queue.put(("tts", None))
 
     def speak_current_content(self):
         if not config_manager.is_tts_allowed(self.tier_key):
@@ -390,17 +501,38 @@ class WatThisApp:
 
     def simulate_copy(self):
         try:
+            user32 = ctypes.windll.user32
             VK_CONTROL = 0x11
+            VK_MENU    = 0x12  # Alt
+            VK_SPACE   = 0x20
             KEYEVENTF_KEYUP = 0x0002
-            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, 0, 0)
-            ctypes.windll.user32.keybd_event(ord('C'), 0, 0, 0)
-            ctypes.windll.user32.keybd_event(ord('C'), 0, KEYEVENTF_KEYUP, 0)
-            ctypes.windll.user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-            time.sleep(0.08)
-        except Exception:
-            pass
+
+            # Explicitly release any physical modifier keys that could corrupt Ctrl+C into Ctrl+Alt+C
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_SPACE, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(ord('F'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(ord('T'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(ord('D'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(ord('S'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+
+            # Fire standard Ctrl + C
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(ord('C'), 0, 0, 0)
+            time.sleep(0.02)
+            user32.keybd_event(ord('C'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.06)
+        except Exception as e:
+            print(f"[WARN] simulate_copy error: {e}")
 
     def handle_hotkey(self, mode="explain"):
+        now = time.time()
+        if now - getattr(self, "last_trigger_time", 0) < 0.35:
+            return
+        self.last_trigger_time = now
+
         tts_helper.stop_speech()
         self.current_mode = mode
 
@@ -409,7 +541,9 @@ class WatThisApp:
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl.configure(text=f" {tier_name} ({tier_ram}) ")
-        self.companion_prof_lbl.configure(text=f"Active Profile: {self.tier_spec.get('name')} ({tier_ram})  |  Model: {self.tier_spec.get('model')}")
+        self.companion_prof_lbl.configure(
+            text=f"Active Profile: {self.tier_spec.get('name')} ({tier_ram})  |  Model: {self.tier_spec.get('model')}"
+        )
 
         # Update TTS button appearance
         tts_ok = config_manager.is_tts_allowed(self.tier_key)
@@ -421,7 +555,7 @@ class WatThisApp:
         if not config_manager.is_mode_allowed_in_tier(mode, self.tier_key):
             mode_spec = config_manager.get_mode_spec(mode)
             req_tier = mode_spec.get("required_tier", "normal").upper()
-            
+
             self.mode_badge_lbl.configure(
                 text=" 🔒 TIER LOCKED ",
                 fg=COLOR_RED,
@@ -442,27 +576,69 @@ class WatThisApp:
             self.hud.deiconify()
             self.hud.attributes("-alpha", 0.98)
             self.hud_visible = True
-            
+
             if self.linger_timer_id:
                 self.root.after_cancel(self.linger_timer_id)
             self.linger_timer_id = self.root.after(7000, self.hide_hud)
             return
 
         # Feature allowed: grab text and execute pipeline
+        prev_clipboard = ""
+        try:
+            prev_clipboard = pyperclip.paste()
+        except Exception:
+            pass
+
         if self.config.get("auto_copy", True):
-            pyperclip.copy("")
             self.simulate_copy()
 
+        text = ""
         try:
-            raw_text = pyperclip.paste()
-            if not raw_text:
-                # If clipboard is empty, provide polite hint
-                raw_text = "Highlight any text or code snippet and press Ctrl+Alt+Space."
-            text = str(raw_text).strip()
-            if not text:
-                return
+            current_clipboard = pyperclip.paste()
+            if current_clipboard and current_clipboard.strip():
+                text = str(current_clipboard).strip()
+            elif prev_clipboard and prev_clipboard.strip():
+                text = str(prev_clipboard).strip()
         except Exception as e:
             print(f"[RECOVERY] Clipboard read error: {e}")
+
+        mode_spec = config_manager.get_mode_spec(mode)
+        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
+        self.mode_badge_lbl.configure(
+            text=f" {mode_spec.get('name', mode).upper()} ",
+            fg=mode_color,
+            highlightbackground=mode_color
+        )
+
+        # If user pressed hotkey with NO text highlighted and empty clipboard:
+        # DO NOT ABORT! Open the HUD and offer an interactive prompt!
+        if not text:
+            self.current_snippet = ""
+            self.conversation_history = []
+            self.chat_turns = 0
+            self.is_thinking = False
+            self.container.configure(highlightbackground=mode_color)
+            self.content_lbl.configure(
+                text=(
+                    "⚡ Ambient Copilot is Ready & Listening\n\n"
+                    "• Highlight text in any application and press Ctrl+Alt+Space\n"
+                    "• Or type your question or code snippet in the box below:"
+                ),
+                fg=COLOR_TEXT_MAIN
+            )
+            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+            self.expand_prompt_lbl.pack_forget()
+            self.input_box_frame.pack(fill="x")
+            self.chat_expanded = True
+            self.follow_mouse()
+            self.hud.deiconify()
+            self.hud.attributes("-alpha", 0.98)
+            self.hud_visible = True
+            self.chat_entry.delete(0, tk.END)
+            self.chat_entry.focus_set()
+            if self.linger_timer_id:
+                self.root.after_cancel(self.linger_timer_id)
+            self.linger_timer_id = self.root.after(20000, self.hide_hud)
             return
 
         max_chars = self.config.get("max_clipboard_chars", 12000)
@@ -473,15 +649,6 @@ class WatThisApp:
         self.conversation_history = []
         self.chat_turns = 0
         self.start_time = time.time()
-
-        # Mode styling
-        mode_spec = config_manager.get_mode_spec(mode)
-        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
-        self.mode_badge_lbl.configure(
-            text=f" {mode_spec.get('name', mode).upper()} ",
-            fg=mode_color,
-            highlightbackground=mode_color
-        )
 
         # Configure follow-up frame visibility based on tier
         self.chat_expanded = False
@@ -515,6 +682,7 @@ class WatThisApp:
             self.linger_timer_id = None
 
         self.is_thinking = True
+        self.is_streaming = True
         self.accumulated_text = ""
         self.status_index = 0
 
@@ -537,10 +705,15 @@ class WatThisApp:
         ).start()
 
     def update_status_animation(self):
-        if self.is_thinking and self.hud_visible:
-            self.content_lbl.configure(text=self.status_states[self.status_index % len(self.status_states)])
-            self.status_index += 1
-            self.root.after(300, self.update_status_animation)
+        try:
+            if not self.root.winfo_exists():
+                return
+            if self.is_thinking and self.hud_visible:
+                self.content_lbl.configure(text=self.status_states[self.status_index % len(self.status_states)])
+                self.status_index += 1
+                self.root.after(300, self.update_status_animation)
+        except Exception:
+            pass
 
     def follow_mouse(self):
         try:
@@ -572,48 +745,61 @@ class WatThisApp:
             pass
 
     def track_mouse_continuous(self):
-        if self.hud_visible and self.is_thinking:
-            self.follow_mouse()
-            self.root.after(16, self.track_mouse_continuous)
+        try:
+            if not self.root.winfo_exists():
+                return
+            if self.hud_visible and self.is_thinking:
+                self.follow_mouse()
+                self.root.after(16, self.track_mouse_continuous)
+        except Exception:
+            pass
 
     def append_streaming_token(self, token):
-        if self.is_thinking:
-            self.is_thinking = False
-            self.container.configure(highlightbackground=COLOR_BORDER)
-            self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
-            self.accumulated_text = ""
+        try:
+            if not self.root.winfo_exists():
+                return
+            if self.is_thinking:
+                self.is_thinking = False
+                self.container.configure(highlightbackground=COLOR_BORDER)
+                self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
+                self.accumulated_text = ""
 
-        self.accumulated_text += token
-        self.content_lbl.configure(text=self.accumulated_text)
-        self.hud.update_idletasks()
+            self.accumulated_text += token
+            self.content_lbl.configure(text=self.accumulated_text)
+            self.hud.update_idletasks()
+        except Exception:
+            pass
 
     def on_stream_finished(self):
-        elapsed = time.time() - self.start_time if self.start_time else None
-        target_model = self.tier_spec.get("model", "local-ai")
-        
-        # Save to local history
-        history_manager.add_entry(
-            snippet=self.current_snippet,
-            response=self.accumulated_text,
-            tier=self.tier_key,
-            mode=self.current_mode,
-            model=target_model,
-            latency_s=elapsed
-        )
+        try:
+            if not self.root.winfo_exists():
+                return
+            self.is_streaming = False
+            elapsed = time.time() - self.start_time if self.start_time else None
+            target_model = self.tier_spec.get("model", "local-ai")
 
-        # Auto-TTS if enabled and allowed in this tier
-        if self.config.get("tts_enabled", False) and config_manager.is_tts_allowed(self.tier_key):
-            self.speak_current_content()
+            # Save to local history
+            history_manager.add_entry(
+                snippet=self.current_snippet,
+                response=self.accumulated_text,
+                tier=self.tier_key,
+                mode=self.current_mode,
+                model=target_model,
+                latency_s=elapsed
+            )
 
-        # Linger timer unless user is interacting with chat
-        if not self.chat_expanded:
-            linger_ms = self.config.get("linger_duration_ms", 14000)
-            self.linger_timer_id = self.root.after(linger_ms, self.hide_hud)
+            # Auto-TTS if enabled and allowed in this tier
+            if self.config.get("tts_enabled", False) and config_manager.is_tts_allowed(self.tier_key):
+                self.speak_current_content()
+
+            # Linger timer unless user is interacting with chat
+            if not self.chat_expanded:
+                linger_ms = self.config.get("linger_duration_ms", 14000)
+                self.linger_timer_id = self.root.after(linger_ms, self.hide_hud)
+        except Exception:
+            pass
 
     def submit_follow_up(self):
-        if not config_manager.is_interactive_chat_allowed(self.tier_key):
-            return
-
         query = self.chat_entry.get().strip()
         if not query or self.is_thinking:
             return
@@ -622,7 +808,24 @@ class WatThisApp:
         self.chat_entry.delete(0, tk.END)
         self.is_thinking = True
         self.content_lbl.configure(text=f"Q: {query}\n\nThinking...", fg=COLOR_BLUE)
-        
+
+        # If user opened HUD with empty clipboard and entered a question, execute as main query
+        if not self.current_snippet:
+            self.current_snippet = query
+            self.start_time = time.time()
+            if self.active_abort_event:
+                self.active_abort_event.set()
+            self.active_abort_event = threading.Event()
+            threading.Thread(
+                target=self.run_ai_pipeline,
+                args=(query, self.current_mode, self.active_abort_event),
+                daemon=True
+            ).start()
+            return
+
+        if not config_manager.is_interactive_chat_allowed(self.tier_key):
+            return
+
         # Multi-turn context
         messages = [
             {"role": "system", "content": self.tier_spec.get("system_prompt", "")},
@@ -656,29 +859,29 @@ class WatThisApp:
                 data=req_data,
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=20) as response:
+            with urllib.request.urlopen(req, timeout=45) as response:
                 first_token = True
                 for line in response:
-                    if abort_event.is_set():
+                    if abort_event.is_set() or not self.is_alive:
                         return
                     if line:
                         try:
                             chunk = json.loads(line.decode('utf-8', errors='ignore'))
                             token = chunk.get("message", {}).get("content", "")
-                            if token:
+                            if token and self.is_alive:
                                 if first_token:
                                     first_token = False
-                                    self.root.after(0, lambda: self.reset_for_new_stream())
-                                self.root.after(0, lambda t=token: self.append_streaming_token(t))
+                                    self.event_queue.put(("reset_chat", None))
+                                self.event_queue.put(("token", token))
                         except Exception:
                             continue
 
-            if not abort_event.is_set():
-                self.root.after(0, self.on_stream_finished)
+            if not abort_event.is_set() and self.is_alive:
+                self.event_queue.put(("finished", None))
 
         except Exception as e:
-            if not abort_event.is_set():
-                self.root.after(0, lambda: self.on_system_error(f"Chat Error: {e}"))
+            if not abort_event.is_set() and self.is_alive:
+                self.event_queue.put(("error", f"Chat Error: {e}"))
 
     def reset_for_new_stream(self):
         self.is_thinking = False
@@ -688,6 +891,7 @@ class WatThisApp:
 
     def on_system_error(self, message):
         self.is_thinking = False
+        self.is_streaming = False
         self.container.configure(highlightbackground=COLOR_RED)
         self.content_lbl.configure(text=message, fg=COLOR_RED)
         self.hud.update_idletasks()
@@ -749,32 +953,61 @@ class WatThisApp:
                 headers={"Content-Type": "application/json"}
             )
 
-            with urllib.request.urlopen(req, timeout=14) as response:
+            with urllib.request.urlopen(req, timeout=45) as response:
                 for line in response:
-                    if abort_event.is_set():
+                    if abort_event.is_set() or not self.is_alive:
                         return
                     if line:
                         try:
                             chunk = json.loads(line.decode('utf-8', errors='ignore'))
                             token = chunk.get("response", "")
-                            if token:
-                                self.root.after(0, lambda t=token: self.append_streaming_token(t))
+                            if token and self.is_alive:
+                                self.event_queue.put(("token", token))
                         except Exception:
                             continue
 
-            if not abort_event.is_set():
-                self.root.after(0, self.on_stream_finished)
+            if not abort_event.is_set() and self.is_alive:
+                self.event_queue.put(("finished", None))
 
         except urllib.error.URLError:
-            if not abort_event.is_set():
-                self.root.after(0, lambda: self.on_system_error("Engine Offline: Ensure Ollama is running (`ollama serve`)."))
+            if not abort_event.is_set() and self.is_alive:
+                self.event_queue.put(("error", "Engine Offline: Ensure Ollama is running (`ollama serve`)."))
         except Exception as e:
-            if not abort_event.is_set():
-                self.root.after(0, lambda: self.on_system_error(f"Execution Error: {str(e)}"))
+            if not abort_event.is_set() and self.is_alive:
+                self.event_queue.put(("error", f"Execution Error: {str(e)}"))
 
     def run(self):
         self.root.mainloop()
 
 if __name__ == "__main__":
-    app = WatThisApp()
-    app.run()
+    # Prevent multiple conflicting background processes
+    MUTEX_NAME = "watthis_singleton_mutex_v1"
+    try:
+        kernel32 = ctypes.windll.kernel32
+        ERROR_ALREADY_EXISTS = 183
+        mutex_handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            print("[INFO] wat-this is already running in background. Restoring existing window.")
+            user32 = ctypes.windll.user32
+            hwnd = user32.FindWindowW(None, "wat-this • Ambient Copilot")
+            if hwnd:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+            sys.exit(0)
+    except Exception:
+        pass
+
+    try:
+        app = WatThisApp()
+        app.run()
+    except Exception as exc:
+        import traceback
+        err_msg = traceback.format_exc()
+        print(f"[FATAL CRASH] {err_msg}")
+        try:
+            log_file = os.path.join(config_manager.BASE_DIR, "wat_this_error.log")
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"\n--- Crash at {time.ctime()} ---\n{err_msg}\n")
+        except Exception:
+            pass
+        sys.exit(1)

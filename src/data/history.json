@@ -1,5 +1,75 @@
 [
   {
+    "id": 1789113130651,
+    "timestamp": "2026-09-11 15:52:10",
+    "mode": "simplify",
+    "tier": "lite",
+    "model": "smollm2:1.7b",
+    "latency_s": 6.04,
+    "snippet": "Asynchronous non-blocking input-output primitives multiplex event queues across concurrent POSIX epoll abstractions.",
+    "response": "Imagine a restaurant with many doors, but only a few workers. Each worker can only handle one order at a time, but you can order from any of the doors (epoll). When one order is ready, the worker answers the door (epoll event) and then waits for the next order. This way, all doors are always ready to handle new orders, no matter how many are coming in."
+  },
+  {
+    "id": 1789113123600,
+    "timestamp": "2026-09-11 15:52:03",
+    "mode": "fix",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 8.46,
+    "snippet": "def parse_age(s):\n    return int(s) # Crashes if s is not numeric",
+    "response": "Let me break down what this code does in simple terms: This code is meant to take a string of text (like \"25\") and convert it into a number (25). However, it has a big problem: it doesn't check if the string is actually a number before trying to convert it. Imagine trying to put a picture of a cat into a blender - it won't work, and that's what's happening here. If the input string isn't numeric, the code will crash."
+  },
+  {
+    "id": 1789113114102,
+    "timestamp": "2026-09-11 15:51:54",
+    "mode": "explain",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 7.89,
+    "snippet": "def calculate_discount(price, rate):\n    return price * (1.0 - rate)",
+    "response": "Let's break it down in simple terms. This is a piece of code that helps us figure out a discount on something. Imagine you buy a shirt for $100, and the store offers 20% off. This code does the same thing: it takes the original price of the shirt ($100) and subtracts 20% of that price, which is $20. The result is $80, which is the discounted price."
+  },
+  {
+    "id": 1789113071581,
+    "timestamp": "2026-09-11 15:51:11",
+    "mode": "simplify",
+    "tier": "lite",
+    "model": "smollm2:1.7b",
+    "latency_s": 9.91,
+    "snippet": "Asynchronous non-blocking input-output primitives multiplex event queues across concurrent POSIX epoll abstractions.",
+    "response": "Imagine having lots of different tasks to do, like playing games, chatting with friends, or listening to music. This text is like a way to manage these tasks and make sure they don't block each other. It's a special tool that helps run these tasks efficiently and without any delays."
+  },
+  {
+    "id": 1789113060631,
+    "timestamp": "2026-09-11 15:51:00",
+    "mode": "fix",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 7.18,
+    "snippet": "def parse_age(s):\n    return int(s) # Crashes if s is not numeric",
+    "response": "This code is designed to take a string input, try to convert it to an integer, and then return the integer. Think of it like trying to turn a number into a dollar amount, so if you give it a string like \"25\", it would return 25. However, if you give it a string like \"hello\", it would crash because you can't turn a letter into a number."
+  },
+  {
+    "id": 1789113052429,
+    "timestamp": "2026-09-11 15:50:52",
+    "mode": "explain",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 8.14,
+    "snippet": "def calculate_discount(price, rate):\n    return price * (1.0 - rate)",
+    "response": "This is a simple code that helps you figure out how much of a discount you'll get on something. Think of it like this: imagine you have a 50p (50%) discount coupon for a toy that normally costs £10. The code would take the original price (£10) and the discount amount (50%) and calculate the new price you'll pay, which would be £6 (£10 - £4)."
+  },
+  {
+    "id": 1789112928256,
+    "timestamp": "2026-09-11 15:48:48",
+    "mode": "explain",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 9.12,
+    "snippet": "def calculate_discount(price, rate): return price * (1.0 - rate)",
+    "response": "Let's break it down in a simple way. This code is like a formula to figure out a discount on a product's price. Think of it like buying something on sale - you get a certain percentage off the original price. The code calculates the discount by taking the original price and multiplying it by a fraction that represents the discount (1 - rate). For example, if the rate is 20% (0.2), the code would give you 80% of the original price, which is like a 20% discount."
+  },
+  {
     "id": 1789110517274,
     "timestamp": "2026-09-11 15:08:37",
     "mode": "explain",
