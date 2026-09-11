@@ -1,9 +1,10 @@
 """
-wat-this: Ambient Desktop Intelligence HUD.
-Zero-DLL, signed Tkinter floating copilot with strict tier-level feature gating:
-- Lite: Sub-2GB RAM, basic functions (Explain, Simplify), 1m unload, offline.
-- Normal: 3-5GB RAM, Fix Mode, web search, 2-turn chat, TTS audio, 5m cache.
-- Extreme: 6-10GB RAM, All modes (Docstrings/Types), unlimited chat, TTS, 15m cache.
+wat-this: Ambient Desktop Intelligence Copilot.
+Zero-DLL, signed Tkinter desktop application with:
+1. Windows Taskbar Companion Window (Always visible in taskbar with icon & status)
+2. Floating Cursor Overlay HUD (Emerges at mouse position on hotkey press)
+3. Strict tier-level gating (Lite, Normal, Extreme)
+4. Interactive follow-up chat, audio TTS, and local knowledge logging.
 """
 import sys
 import os
@@ -11,30 +12,56 @@ import time
 import json
 import ctypes
 import threading
+import subprocess
 import urllib.request
 import urllib.parse
 import pyperclip
 import keyboard
 import tkinter as tk
 
+# Set explicit Windows AppUserModelID so Windows gives it its own dedicated Taskbar icon
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("watthis.ambientcopilot.app.1")
+except Exception:
+    pass
+
 import config_manager
 import search_helper
 import history_manager
 import tts_helper
 
+# ---------------------------------------------------------------------------
+# DESIGN SYSTEM TOKENS (Obsidian & Slate Theme)
+# ---------------------------------------------------------------------------
+COLOR_BG_DARK      = "#0D1117"  # Canvas
+COLOR_CONTAINER    = "#161B22"  # Surface
+COLOR_BORDER       = "#30363D"  # Structural border
+COLOR_TEXT_MAIN    = "#F0F6FC"  # High-contrast text
+COLOR_TEXT_SEC     = "#8B949E"  # Neutral text
+COLOR_TEXT_DIM     = "#6E7681"  # Muted captions
+COLOR_BLUE         = "#388BFD"  # Brand primary
+COLOR_BLUE_BG      = "#0D203D"
+COLOR_GREEN        = "#3FB950"  # Emerald green
+COLOR_GREEN_BG     = "#122619"
+COLOR_AMBER        = "#D29922"
+COLOR_RED          = "#F85149"
+COLOR_RED_BG       = "#281215"
+COLOR_PURPLE       = "#A371F7"
+
 MODE_COLORS = {
-    "explain": "#388BFD",    # Electric Blue
-    "simplify": "#D29922",   # Warm Amber
-    "fix": "#3FB950",        # Emerald Green
-    "docstring": "#A371F7"   # Purple
+    "explain": COLOR_BLUE,
+    "simplify": COLOR_AMBER,
+    "fix": COLOR_GREEN,
+    "docstring": COLOR_PURPLE
 }
 
-COLOR_BG_HUD       = "#0D1117"
-COLOR_CONTAINER    = "#161B22"
-COLOR_BORDER       = "#30363D"
-COLOR_TEXT_MAIN    = "#F0F6FC"
-COLOR_TEXT_SEC     = "#8B949E"
-COLOR_DRAWER_BG    = "#0D1117"
+FONT_FAMILY = "Segoe UI"
+FONT_HERO    = (FONT_FAMILY, 12, "bold")
+FONT_TITLE   = (FONT_FAMILY, 10, "bold")
+FONT_BODY    = (FONT_FAMILY, 9)
+FONT_BOLD    = (FONT_FAMILY, 9, "bold")
+FONT_MICRO   = (FONT_FAMILY, 8, "bold")
+FONT_CODE    = ("Consolas", 9)
 
 class WatThisApp:
     def __init__(self):
@@ -51,38 +78,171 @@ class WatThisApp:
         self.status_index = 0
         self.status_states = ["Gathering context.", "Gathering context..", "Gathering context..."]
         self.linger_timer_id = None
-        self.is_visible = False
+        self.hud_visible = False
         self.chat_expanded = False
         self.start_time = None
         self.chat_turns = 0
 
-        self.init_ui()
+        # Build Taskbar Companion Window + Floating Cursor HUD
+        self.init_taskbar_window()
+        self.init_hud_overlay()
         self.register_all_hotkeys()
 
         print(f"[DEPLOYED] wat-this Active. Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
-        print(f"Allowed Modes in this tier: {', '.join(self.tier_spec.get('allowed_modes', []))}")
-        print("Registered Hotkeys:")
-        for m_key, m_spec in config_manager.get_modes().items():
-            print(f"  - [{m_spec['name']}]: {m_spec['hotkey'].upper()}")
-        print(f"  - [Text-to-Speech]: {self.config.get('tts_hotkey', 'ctrl+alt+s').upper()}")
+        print("Taskbar Companion active. Press hotkey anytime to trigger overlay.")
 
-    def init_ui(self):
+    # ---------------------------------------------------------------------------
+    # 1. TASKBAR COMPANION WINDOW (Visible on Windows Taskbar)
+    # ---------------------------------------------------------------------------
+    def init_taskbar_window(self):
         self.root = tk.Tk()
-        self.root.title("wat-this")
-        
-        # Window Flags: Frameless, Always on top, hidden initially
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.0)
-        self.root.configure(bg=COLOR_BG_HUD)
-        self.root.withdraw()
+        self.root.title("wat-this • Ambient Copilot")
+        self.root.geometry("440x260")
+        self.root.resizable(False, False)
+        self.root.configure(bg=COLOR_BG_DARK)
+
+        # Set taskbar icon
+        if os.path.exists(config_manager.ICON_ICO_PATH):
+            try:
+                self.root.iconbitmap(config_manager.ICON_ICO_PATH)
+            except Exception:
+                pass
+
+        # Position companion near bottom-right above taskbar
+        try:
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            pos_x = max(20, screen_w - 470)
+            pos_y = max(20, screen_h - 320)
+            self.root.geometry(f"440x260+{pos_x}+{pos_y}")
+        except Exception:
+            pass
+
+        # Handle window minimize/close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_companion_close)
+
+        # Card Container
+        card = tk.Frame(self.root, bg=COLOR_CONTAINER, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
+        card.pack(fill="both", expand=True, padx=12, pady=12)
+
+        # Header Row
+        hdr = tk.Frame(card, bg=COLOR_CONTAINER)
+        hdr.pack(fill="x", padx=16, pady=(14, 8))
+
+        # Brand Title
+        tk.Label(
+            hdr, text="wat-this", font=FONT_HERO,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN
+        ).pack(side="left")
+
+        tk.Label(
+            hdr, text=" Ambient Copilot", font=FONT_BODY,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_SEC
+        ).pack(side="left", padx=(2, 8))
+
+        # Status Pill
+        self.companion_status = tk.Label(
+            hdr, text=" ● Active & Listening ", font=FONT_MICRO,
+            bg=COLOR_GREEN_BG, fg=COLOR_GREEN, bd=1, relief="solid",
+            highlightbackground=COLOR_GREEN, highlightthickness=1, padx=6, pady=2
+        )
+        self.companion_status.pack(side="right")
+
+        # Profile info strip
+        tier_name = self.tier_spec.get("name", "Normal")
+        tier_ram = self.tier_spec.get("ram_target", "")
+        model_name = self.tier_spec.get("model", "")
+        self.companion_prof_lbl = tk.Label(
+            card, text=f"Active Profile: {tier_name} ({tier_ram})  |  Model: {model_name}",
+            font=FONT_BOLD, bg=COLOR_CONTAINER, fg=COLOR_BLUE
+        )
+        self.companion_prof_lbl.pack(anchor="w", padx=16, pady=(0, 10))
+
+        # Hotkey Guide Box
+        hk_box = tk.Frame(card, bg=COLOR_BG_DARK, bd=1, relief="solid", highlightbackground=COLOR_BORDER)
+        hk_box.pack(fill="x", padx=16, pady=(0, 12), ipady=4)
+
+        shortcuts = [
+            ("Ctrl + Alt + Space", "Explain / Teach"),
+            ("Ctrl + Alt + F",     "Fix & Bug Detect"),
+            ("Ctrl + Alt + T",     "Simplify (ELI5)"),
+            ("Ctrl + Alt + S",     "Listen (TTS Audio)")
+        ]
+        for key_str, desc in shortcuts:
+            r = tk.Frame(hk_box, bg=COLOR_BG_DARK)
+            r.pack(fill="x", padx=10, pady=1)
+            tk.Label(r, text=key_str, font=FONT_CODE, bg=COLOR_CONTAINER, fg=COLOR_BLUE, padx=6).pack(side="left")
+            tk.Label(r, text=f" →  {desc}", font=FONT_BODY, bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC).pack(side="left", padx=4)
+
+        # Action Buttons Row
+        btn_bar = tk.Frame(card, bg=COLOR_CONTAINER)
+        btn_bar.pack(fill="x", padx=16, pady=(0, 8))
+
+        tk.Button(
+            btn_bar, text="⚡  Trigger Copilot Now", font=FONT_BOLD,
+            bg=COLOR_BLUE, fg="#FFFFFF", activebackground="#2563EB", activeforeground="#FFFFFF",
+            bd=0, padx=12, pady=5, cursor="hand2", command=lambda: self.handle_hotkey("explain")
+        ).pack(side="left", padx=(0, 8))
+
+        tk.Button(
+            btn_bar, text="⚙️  Settings", font=FONT_BODY,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_MAIN, activebackground=COLOR_BORDER, activeforeground="#FFF",
+            bd=1, relief="solid", highlightbackground=COLOR_BORDER, padx=10, pady=4, cursor="hand2",
+            command=self.open_setup
+        ).pack(side="left", padx=(0, 8))
+
+        tk.Button(
+            btn_bar, text="_ Minimize", font=FONT_BODY,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, activebackground=COLOR_BORDER, activeforeground="#FFF",
+            bd=1, relief="solid", highlightbackground=COLOR_BORDER, padx=8, pady=4, cursor="hand2",
+            command=self.root.iconify
+        ).pack(side="left")
+
+        tk.Button(
+            btn_bar, text="✕ Quit", font=FONT_BODY,
+            bg=COLOR_RED_BG, fg=COLOR_RED, activebackground=COLOR_RED, activeforeground="#FFF",
+            bd=1, relief="solid", highlightbackground=COLOR_RED, padx=8, pady=4, cursor="hand2",
+            command=self.quit_app
+        ).pack(side="right")
+
+    def open_setup(self):
+        try:
+            setup_script = os.path.join(config_manager.BASE_DIR, "setup.py")
+            subprocess.Popen([sys.executable, setup_script], cwd=config_manager.BASE_DIR)
+        except Exception as e:
+            print(f"[ERROR] Could not open setup: {e}")
+
+    def on_companion_close(self):
+        # Minimize to taskbar on window X rather than terminating silently
+        self.root.iconify()
+
+    def quit_app(self):
+        tts_helper.stop_speech()
+        try:
+            keyboard.unhook_all_hotkeys()
+        except Exception:
+            pass
+        self.root.destroy()
+        sys.exit(0)
+
+    # ---------------------------------------------------------------------------
+    # 2. FLOATING CURSOR OVERLAY HUD (Emerges at cursor position)
+    # ---------------------------------------------------------------------------
+    def init_hud_overlay(self):
+        self.hud = tk.Toplevel(self.root)
+        self.hud.title("wat-this HUD")
+        self.hud.overrideredirect(True)
+        self.hud.attributes("-topmost", True)
+        self.hud.attributes("-alpha", 0.0)
+        self.hud.configure(bg=COLOR_BG_DARK)
+        self.hud.withdraw()
 
         # Keyboard & Click dismiss handlers
-        self.root.bind("<Escape>", lambda e: self.hide_hud())
-        self.root.bind("<Tab>", lambda e: self.toggle_follow_up(True))
+        self.hud.bind("<Escape>", lambda e: self.hide_hud())
+        self.hud.bind("<Tab>", lambda e: self.toggle_follow_up(True))
 
-        # Main Container with sleek shadow/border
-        self.container = tk.Frame(self.root, bg=COLOR_CONTAINER, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
+        # Main HUD Container
+        self.container = tk.Frame(self.hud, bg=COLOR_CONTAINER, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
         self.container.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Header Frame
@@ -90,27 +250,16 @@ class WatThisApp:
         self.header_frame.pack(fill="x", padx=16, pady=(12, 6))
 
         self.title_lbl = tk.Label(
-            self.header_frame,
-            text="WAT-THIS",
-            font=("Segoe UI", 9, "bold"),
-            bg=COLOR_CONTAINER,
-            fg=COLOR_TEXT_SEC
+            self.header_frame, text="WAT-THIS", font=FONT_TITLE,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_SEC
         )
         self.title_lbl.pack(side="left")
 
         # Mode Badge
         self.mode_badge_lbl = tk.Label(
-            self.header_frame,
-            text=" EXPLAIN ",
-            font=("Segoe UI", 8, "bold"),
-            bg=COLOR_BG_HUD,
-            fg="#388BFD",
-            bd=1,
-            relief="solid",
-            highlightbackground="#388BFD",
-            highlightthickness=1,
-            padx=4,
-            pady=1
+            self.header_frame, text=" EXPLAIN ", font=FONT_MICRO,
+            bg=COLOR_BG_DARK, fg=COLOR_BLUE, bd=1, relief="solid",
+            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=4, pady=1
         )
         self.mode_badge_lbl.pack(side="left", padx=(8, 4))
 
@@ -118,101 +267,62 @@ class WatThisApp:
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl = tk.Label(
-            self.header_frame,
-            text=f" {tier_name} ({tier_ram}) ",
-            font=("Segoe UI", 8, "bold"),
-            bg=COLOR_BG_HUD,
-            fg="#6E7681",
-            bd=1,
-            relief="solid",
-            highlightbackground=COLOR_BORDER,
-            highlightthickness=1,
-            padx=4,
-            pady=1
+            self.header_frame, text=f" {tier_name} ({tier_ram}) ", font=FONT_MICRO,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1, padx=4, pady=1
         )
         self.tier_badge_lbl.pack(side="left", padx=4)
 
         # TTS Audio Button
         self.tts_btn = tk.Label(
-            self.header_frame,
-            text="🔊",
-            font=("Segoe UI", 10),
-            bg=COLOR_CONTAINER,
-            fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
+            self.header_frame, text="🔊", font=FONT_TITLE,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
             cursor="hand2"
         )
         self.tts_btn.pack(side="right", padx=(8, 0))
         self.tts_btn.bind("<Button-1>", lambda e: self.speak_current_content())
 
         self.hint_lbl = tk.Label(
-            self.header_frame,
-            text="Esc to close",
-            font=("Segoe UI", 8),
-            bg=COLOR_CONTAINER,
-            fg="#6E7681"
+            self.header_frame, text="Esc to close", font=FONT_BODY,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_DIM
         )
         self.hint_lbl.pack(side="right")
 
         # Content Text Area
         self.content_lbl = tk.Label(
-            self.container,
-            text="",
-            font=("Segoe UI", 10),
-            bg=COLOR_CONTAINER,
-            fg=COLOR_TEXT_MAIN,
-            wraplength=440,
-            justify="left",
-            anchor="w"
+            self.container, text="", font=FONT_BODY,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, wraplength=440,
+            justify="left", anchor="w"
         )
         self.content_lbl.pack(fill="both", expand=True, padx=16, pady=(4, 10))
 
         # Follow-Up Expand Frame
-        self.follow_up_frame = tk.Frame(self.container, bg=COLOR_DRAWER_BG, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
+        self.follow_up_frame = tk.Frame(self.container, bg=COLOR_BG_DARK, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
         self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
 
         self.expand_prompt_lbl = tk.Label(
-            self.follow_up_frame,
-            text="💬  Press Tab or click to ask follow-up...",
-            font=("Segoe UI", 8),
-            bg=COLOR_DRAWER_BG,
-            fg=COLOR_TEXT_SEC,
-            cursor="hand2",
-            pady=4
+            self.follow_up_frame, text="💬  Press Tab or click to ask follow-up...",
+            font=FONT_SMALL, bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, cursor="hand2", pady=4
         )
         self.expand_prompt_lbl.pack(fill="x")
         self.expand_prompt_lbl.bind("<Button-1>", lambda e: self.toggle_follow_up(True))
 
         # Input Box for Chat Follow-up (hidden until expanded)
-        self.input_box_frame = tk.Frame(self.follow_up_frame, bg=COLOR_DRAWER_BG)
+        self.input_box_frame = tk.Frame(self.follow_up_frame, bg=COLOR_BG_DARK)
         
         self.chat_entry = tk.Entry(
-            self.input_box_frame,
-            font=("Segoe UI", 9),
-            bg=COLOR_CONTAINER,
-            fg=COLOR_TEXT_MAIN,
-            insertbackground="#388BFD",
-            bd=0,
-            highlightbackground=COLOR_BORDER,
-            highlightthickness=1,
-            relief="flat"
+            self.input_box_frame, font=FONT_BODY,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
+            bd=0, highlightbackground=COLOR_BORDER, highlightthickness=1, relief="flat"
         )
         self.chat_entry.pack(side="left", fill="x", expand=True, padx=(6, 6), pady=6, ipady=3)
         self.chat_entry.bind("<Return>", lambda e: self.submit_follow_up())
         self.chat_entry.bind("<Escape>", lambda e: self.hide_hud())
 
         self.chat_send_btn = tk.Button(
-            self.input_box_frame,
-            text="Ask",
-            font=("Segoe UI", 8, "bold"),
-            bg="#388BFD",
-            fg="#FFFFFF",
-            activebackground="#2563EB",
-            activeforeground="#FFFFFF",
-            bd=0,
-            padx=10,
-            pady=3,
-            cursor="hand2",
-            command=self.submit_follow_up
+            self.input_box_frame, text="Ask", font=FONT_MICRO,
+            bg=COLOR_BLUE, fg="#FFFFFF", activebackground="#2563EB", activeforeground="#FFFFFF",
+            bd=0, padx=10, pady=3, cursor="hand2", command=self.submit_follow_up
         )
         self.chat_send_btn.pack(side="right", padx=(0, 6), pady=6)
 
@@ -249,8 +359,8 @@ class WatThisApp:
 
     def speak_current_content(self):
         if not config_manager.is_tts_allowed(self.tier_key):
-            self.hint_lbl.configure(text="TTS locked in Lite", fg="#F38BA8")
-            self.root.after(2500, lambda: self.hint_lbl.configure(text="Esc to close", fg="#6C7086"))
+            self.hint_lbl.configure(text="TTS locked in Lite", fg=COLOR_RED)
+            self.root.after(2500, lambda: self.hint_lbl.configure(text="Esc to close", fg=COLOR_TEXT_DIM))
             return
 
         if self.accumulated_text:
@@ -264,7 +374,7 @@ class WatThisApp:
         if self.chat_turns >= max_turns and self.tier_key != "extreme":
             self.expand_prompt_lbl.configure(
                 text=f"Turn limit ({max_turns}) reached for {self.tier_spec.get('name')} tier. Upgrade to Extreme for unlimited.",
-                fg="#F9E2AF"
+                fg=COLOR_AMBER
             )
             return
 
@@ -299,10 +409,11 @@ class WatThisApp:
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl.configure(text=f" {tier_name} ({tier_ram}) ")
+        self.companion_prof_lbl.configure(text=f"Active Profile: {self.tier_spec.get('name')} ({tier_ram})  |  Model: {self.tier_spec.get('model')}")
 
-        # Update TTS button appearance according to tier
+        # Update TTS button appearance
         tts_ok = config_manager.is_tts_allowed(self.tier_key)
-        self.tts_btn.configure(fg="#A6ADC8" if tts_ok else "#45475A")
+        self.tts_btn.configure(fg=COLOR_TEXT_SEC if tts_ok else "#484F58")
 
         # ----------------------------------------------------
         # TIER LEVEL FEATURE GATING ENFORCEMENT
@@ -313,31 +424,31 @@ class WatThisApp:
             
             self.mode_badge_lbl.configure(
                 text=" 🔒 TIER LOCKED ",
-                fg="#F38BA8",
-                highlightbackground="#F38BA8"
+                fg=COLOR_RED,
+                highlightbackground=COLOR_RED
             )
-            self.container.configure(highlightbackground="#F38BA8")
+            self.container.configure(highlightbackground=COLOR_RED)
             self.content_lbl.configure(
                 text=(
                     f"Feature '{mode_spec.get('name')}' is locked in the {tier_name} profile.\n\n"
                     f"• Required Tier: {req_tier}\n"
                     f"• Active Profile: {tier_name} ({tier_ram})\n\n"
-                    f"Open SETUP.bat to upgrade your model tier."
+                    f"Open Settings to upgrade your model tier."
                 ),
-                fg="#F38BA8"
+                fg=COLOR_RED
             )
             self.follow_up_frame.pack_forget()
             self.follow_mouse()
-            self.root.deiconify()
-            self.root.attributes("-alpha", 0.98)
-            self.is_visible = True
+            self.hud.deiconify()
+            self.hud.attributes("-alpha", 0.98)
+            self.hud_visible = True
             
             if self.linger_timer_id:
                 self.root.after_cancel(self.linger_timer_id)
             self.linger_timer_id = self.root.after(7000, self.hide_hud)
             return
 
-        # Feature allowed: execute pipeline
+        # Feature allowed: grab text and execute pipeline
         if self.config.get("auto_copy", True):
             pyperclip.copy("")
             self.simulate_copy()
@@ -345,7 +456,8 @@ class WatThisApp:
         try:
             raw_text = pyperclip.paste()
             if not raw_text:
-                return
+                # If clipboard is empty, provide polite hint
+                raw_text = "Highlight any text or code snippet and press Ctrl+Alt+Space."
             text = str(raw_text).strip()
             if not text:
                 return
@@ -364,7 +476,7 @@ class WatThisApp:
 
         # Mode styling
         mode_spec = config_manager.get_mode_spec(mode)
-        mode_color = MODE_COLORS.get(mode, "#89B4FA")
+        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
         self.mode_badge_lbl.configure(
             text=f" {mode_spec.get('name', mode).upper()} ",
             fg=mode_color,
@@ -380,7 +492,7 @@ class WatThisApp:
             self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
             self.expand_prompt_lbl.configure(
                 text="💬  Press Tab or click to ask follow-up...",
-                fg="#6C7086",
+                fg=COLOR_TEXT_SEC,
                 cursor="hand2"
             )
             self.expand_prompt_lbl.pack(fill="x")
@@ -388,7 +500,7 @@ class WatThisApp:
             self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
             self.expand_prompt_lbl.configure(
                 text="🔒 Follow-up chat unlocked in Normal & Extreme tiers",
-                fg="#45475A",
+                fg=COLOR_TEXT_DIM,
                 cursor="arrow"
             )
             self.expand_prompt_lbl.pack(fill="x")
@@ -410,9 +522,9 @@ class WatThisApp:
         self.container.configure(highlightbackground=mode_color)
 
         self.follow_mouse()
-        self.root.deiconify()
-        self.root.attributes("-alpha", 0.98)
-        self.is_visible = True
+        self.hud.deiconify()
+        self.hud.attributes("-alpha", 0.98)
+        self.hud_visible = True
 
         self.update_status_animation()
         self.track_mouse_continuous()
@@ -425,7 +537,7 @@ class WatThisApp:
         ).start()
 
     def update_status_animation(self):
-        if self.is_thinking and self.is_visible:
+        if self.is_thinking and self.hud_visible:
             self.content_lbl.configure(text=self.status_states[self.status_index % len(self.status_states)])
             self.status_index += 1
             self.root.after(300, self.update_status_animation)
@@ -440,9 +552,9 @@ class WatThisApp:
             screen_w = self.root.winfo_screenwidth()
             screen_h = self.root.winfo_screenheight()
 
-            self.root.update_idletasks()
-            win_w = max(self.fixed_width, self.root.winfo_reqwidth())
-            win_h = self.root.winfo_reqheight()
+            self.hud.update_idletasks()
+            win_w = max(self.fixed_width, self.hud.winfo_reqwidth())
+            win_h = self.hud.winfo_reqheight()
 
             target_x = pt.x + 25
             target_y = pt.y + 25
@@ -455,25 +567,25 @@ class WatThisApp:
             target_x = max(10, min(target_x, screen_w - win_w - 10))
             target_y = max(10, min(target_y, screen_h - win_h - 10))
 
-            self.root.geometry(f"{win_w}x{win_h}+{target_x}+{target_y}")
+            self.hud.geometry(f"{win_w}x{win_h}+{target_x}+{target_y}")
         except Exception:
             pass
 
     def track_mouse_continuous(self):
-        if self.is_visible and self.is_thinking:
+        if self.hud_visible and self.is_thinking:
             self.follow_mouse()
             self.root.after(16, self.track_mouse_continuous)
 
     def append_streaming_token(self, token):
         if self.is_thinking:
             self.is_thinking = False
-            self.container.configure(highlightbackground="#313244")
-            self.content_lbl.configure(fg="#CDD6F4")
+            self.container.configure(highlightbackground=COLOR_BORDER)
+            self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
             self.accumulated_text = ""
 
         self.accumulated_text += token
         self.content_lbl.configure(text=self.accumulated_text)
-        self.root.update_idletasks()
+        self.hud.update_idletasks()
 
     def on_stream_finished(self):
         elapsed = time.time() - self.start_time if self.start_time else None
@@ -509,7 +621,7 @@ class WatThisApp:
         self.chat_turns += 1
         self.chat_entry.delete(0, tk.END)
         self.is_thinking = True
-        self.content_lbl.configure(text=f"Q: {query}\n\nThinking...", fg="#89B4FA")
+        self.content_lbl.configure(text=f"Q: {query}\n\nThinking...", fg=COLOR_BLUE)
         
         # Multi-turn context
         messages = [
@@ -570,24 +682,24 @@ class WatThisApp:
 
     def reset_for_new_stream(self):
         self.is_thinking = False
-        self.container.configure(highlightbackground="#313244")
-        self.content_lbl.configure(fg="#CDD6F4")
+        self.container.configure(highlightbackground=COLOR_BORDER)
+        self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
         self.accumulated_text = ""
 
     def on_system_error(self, message):
         self.is_thinking = False
-        self.container.configure(highlightbackground="#F38BA8")
-        self.content_lbl.configure(text=message, fg="#F38BA8")
-        self.root.update_idletasks()
+        self.container.configure(highlightbackground=COLOR_RED)
+        self.content_lbl.configure(text=message, fg=COLOR_RED)
+        self.hud.update_idletasks()
         self.linger_timer_id = self.root.after(6000, self.hide_hud)
 
     def hide_hud(self):
         tts_helper.stop_speech()
-        self.is_visible = False
+        self.hud_visible = False
         self.is_thinking = False
         self.chat_expanded = False
-        self.root.attributes("-alpha", 0.0)
-        self.root.withdraw()
+        self.hud.attributes("-alpha", 0.0)
+        self.hud.withdraw()
         self.content_lbl.configure(text="")
         self.accumulated_text = ""
 

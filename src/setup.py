@@ -1,8 +1,3 @@
-"""
-wat-this Setup & Maintenance Wizard.
-Modern Sidebar-and-Canvas Desktop Interface for Windows 10/11.
-Built with pure Tkinter and Win32 APIs (Zero-DLL, Smart App Control compliant).
-"""
 import sys
 import os
 import json
@@ -13,6 +8,12 @@ import urllib.request
 import urllib.parse
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+# Set explicit Windows AppUserModelID for taskbar grouping
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("watthis.setup.wizard.1")
+except Exception:
+    pass
 
 import config_manager
 import history_manager
@@ -40,6 +41,36 @@ COLOR_AMBER        = "#D29922"  # Warning state
 COLOR_RED          = "#F85149"  # Danger / Delete state
 COLOR_RED_BG       = "#281215"  # Danger pill background
 COLOR_PURPLE       = "#A371F7"  # Extreme tier accent
+
+class ToggleSwitch(tk.Canvas):
+    """Modern pill-shaped toggle switch replacing raw checkbuttons."""
+    def __init__(self, parent, variable=None, command=None, width=42, height=22, bg=COLOR_CARD, active_color=COLOR_BLUE):
+        super().__init__(parent, width=width, height=height, bg=bg, highlightthickness=0, cursor="hand2")
+        self.var = variable or tk.BooleanVar(value=False)
+        self.command = command
+        self.active_color = active_color
+        self.bg_color = bg
+        self.bind("<Button-1>", self.toggle)
+        self.draw()
+
+    def toggle(self, event=None):
+        self.var.set(not self.var.get())
+        self.draw()
+        if self.command:
+            self.command()
+
+    def draw(self):
+        self.delete("all")
+        val = self.var.get()
+        track = self.active_color if val else "#30363D"
+        # Draw rounded pill track
+        self.create_oval(1, 1, 21, 21, fill=track, outline=track)
+        self.create_oval(21, 1, 41, 21, fill=track, outline=track)
+        self.create_rectangle(11, 1, 31, 21, fill=track, outline=track)
+        # Draw thumb
+        tx = 21 if val else 2
+        self.create_oval(tx, 2, tx + 18, 20, fill="#FFFFFF", outline="#FFFFFF")
+
 
 FONT_FAMILY = "Segoe UI"
 FONT_HERO    = (FONT_FAMILY, 15, "bold")
@@ -676,23 +707,25 @@ class SetupApp:
         int_card = tk.Frame(page, bg=COLOR_CARD, bd=1, relief="solid", highlightbackground=COLOR_CARD_BORDER, highlightthickness=1)
         int_card.pack(fill="x", pady=(0, 12), ipady=8)
 
-        tk.Label(int_card, text="SYSTEM INTEGRATION", font=FONT_MICRO, bg=COLOR_CARD, fg=COLOR_BLUE).pack(anchor="w", padx=16, pady=(10, 4))
+        tk.Label(int_card, text="SYSTEM INTEGRATION", font=FONT_MICRO, bg=COLOR_CARD, fg=COLOR_BLUE).pack(anchor="w", padx=16, pady=(10, 8))
 
+        # Windows Startup Row
+        row_as = tk.Frame(int_card, bg=COLOR_CARD)
+        row_as.pack(fill="x", padx=16, pady=(0, 4))
         self.var_autostart = tk.BooleanVar(value=config_manager.is_windows_autostart_enabled())
-        tk.Checkbutton(
-            int_card, text="Launch wat-this automatically when Windows starts",
-            variable=self.var_autostart, font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT,
-            selectcolor=COLOR_CARD_SUB, activebackground=COLOR_CARD
-        ).pack(anchor="w", padx=16, pady=(2, 2))
-        tk.Label(int_card, text="Creates a clean shortcut in %APPDATA%\\Startup. No registry modifications.", font=FONT_SMALL, bg=COLOR_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", padx=16, pady=(0, 8))
+        self.sw_autostart = ToggleSwitch(row_as, variable=self.var_autostart, bg=COLOR_CARD)
+        self.sw_autostart.pack(side="left", padx=(0, 12))
+        tk.Label(row_as, text="Launch wat-this automatically when Windows starts", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT).pack(side="left")
+        tk.Label(int_card, text="Creates a clean shortcut in %APPDATA%\\Startup. Zero registry modifications.", font=FONT_SMALL, bg=COLOR_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", padx=70, pady=(0, 10))
 
+        # Windows TTS Audio Row
+        row_tts = tk.Frame(int_card, bg=COLOR_CARD)
+        row_tts.pack(fill="x", padx=16, pady=(0, 4))
         self.var_tts = tk.BooleanVar(value=self.config.get("tts_enabled", False))
-        tk.Checkbutton(
-            int_card, text="Automatically read explanations aloud (Offline Windows TTS)",
-            variable=self.var_tts, font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT,
-            selectcolor=COLOR_CARD_SUB, activebackground=COLOR_CARD
-        ).pack(anchor="w", padx=16, pady=(2, 2))
-        tk.Label(int_card, text="Uses Windows native System.Speech.Synthesis. (Available on Normal & Extreme tiers).", font=FONT_SMALL, bg=COLOR_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", padx=16, pady=(0, 6))
+        self.sw_tts = ToggleSwitch(row_tts, variable=self.var_tts, bg=COLOR_CARD)
+        self.sw_tts.pack(side="left", padx=(0, 12))
+        tk.Label(row_tts, text="Automatically read explanations aloud (Offline Windows TTS)", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT).pack(side="left")
+        tk.Label(int_card, text="Uses Windows native System.Speech.Synthesis. (Available on Normal & Extreme tiers).", font=FONT_SMALL, bg=COLOR_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", padx=70, pady=(0, 8))
 
         # Hotkeys & Gating Table Card
         hk_card = tk.Frame(page, bg=COLOR_CARD, bd=1, relief="solid", highlightbackground=COLOR_CARD_BORDER, highlightthickness=1)
@@ -965,7 +998,20 @@ class SetupApp:
             pyw = r"C:\Users\jishn\AppData\Local\Programs\Python\Python312\pythonw.exe"
             py_exec = pyw if os.path.exists(pyw) else sys.executable
             subprocess.Popen([py_exec, main_script], cwd=config_manager.BASE_DIR)
-            self.root.destroy()
+            
+            self.btn_launch.configure(
+                text="✓  Copilot Active on Taskbar",
+                bg=COLOR_GREEN,
+                activebackground=COLOR_GREEN
+            )
+            messagebox.showinfo(
+                "wat-this Running",
+                "wat-this is now running on your Windows Taskbar!\n\n"
+                "• Check your taskbar for 'wat-this • Ambient Copilot'.\n"
+                "• Highlight any text anywhere and press Ctrl + Alt + Space.\n"
+                "• You can minimize this setup window anytime."
+            )
+            self.root.iconify()
         except Exception as e:
             messagebox.showerror("Launch Error", f"Could not start wat-this: {e}")
 
