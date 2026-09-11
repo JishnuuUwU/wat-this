@@ -23,11 +23,18 @@ import history_manager
 import tts_helper
 
 MODE_COLORS = {
-    "explain": "#89B4FA",    # Blue
-    "simplify": "#F9E2AF",   # Peach/Yellow
-    "fix": "#A6E3A1",        # Green
-    "docstring": "#CBA6F7"   # Mauve/Purple
+    "explain": "#388BFD",    # Electric Blue
+    "simplify": "#D29922",   # Warm Amber
+    "fix": "#3FB950",        # Emerald Green
+    "docstring": "#A371F7"   # Purple
 }
+
+COLOR_BG_HUD       = "#0D1117"
+COLOR_CONTAINER    = "#161B22"
+COLOR_BORDER       = "#30363D"
+COLOR_TEXT_MAIN    = "#F0F6FC"
+COLOR_TEXT_SEC     = "#8B949E"
+COLOR_DRAWER_BG    = "#0D1117"
 
 class WatThisApp:
     def __init__(self):
@@ -67,27 +74,27 @@ class WatThisApp:
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.0)
-        self.root.configure(bg="#1E1E2E")
+        self.root.configure(bg=COLOR_BG_HUD)
         self.root.withdraw()
 
         # Keyboard & Click dismiss handlers
         self.root.bind("<Escape>", lambda e: self.hide_hud())
         self.root.bind("<Tab>", lambda e: self.toggle_follow_up(True))
 
-        # Main Container
-        self.container = tk.Frame(self.root, bg="#181825", bd=1, relief="solid", highlightbackground="#313244", highlightthickness=1)
+        # Main Container with sleek shadow/border
+        self.container = tk.Frame(self.root, bg=COLOR_CONTAINER, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
         self.container.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Header Frame
-        self.header_frame = tk.Frame(self.container, bg="#181825")
+        self.header_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
         self.header_frame.pack(fill="x", padx=16, pady=(12, 6))
 
         self.title_lbl = tk.Label(
             self.header_frame,
             text="WAT-THIS",
-            font=("Segoe UI Variable Display", 9, "bold"),
-            bg="#181825",
-            fg="#A6ADC8"
+            font=("Segoe UI", 9, "bold"),
+            bg=COLOR_CONTAINER,
+            fg=COLOR_TEXT_SEC
         )
         self.title_lbl.pack(side="left")
 
@@ -96,12 +103,14 @@ class WatThisApp:
             self.header_frame,
             text=" EXPLAIN ",
             font=("Segoe UI", 8, "bold"),
-            bg="#1E1E2E",
-            fg="#89B4FA",
+            bg=COLOR_BG_HUD,
+            fg="#388BFD",
             bd=1,
             relief="solid",
-            highlightbackground="#89B4FA",
-            highlightthickness=1
+            highlightbackground="#388BFD",
+            highlightthickness=1,
+            padx=4,
+            pady=1
         )
         self.mode_badge_lbl.pack(side="left", padx=(8, 4))
 
@@ -112,12 +121,14 @@ class WatThisApp:
             self.header_frame,
             text=f" {tier_name} ({tier_ram}) ",
             font=("Segoe UI", 8, "bold"),
-            bg="#1E1E2E",
-            fg="#6C7086",
+            bg=COLOR_BG_HUD,
+            fg="#6E7681",
             bd=1,
             relief="solid",
-            highlightbackground="#45475A",
-            highlightthickness=1
+            highlightbackground=COLOR_BORDER,
+            highlightthickness=1,
+            padx=4,
+            pady=1
         )
         self.tier_badge_lbl.pack(side="left", padx=4)
 
@@ -126,8 +137,8 @@ class WatThisApp:
             self.header_frame,
             text="🔊",
             font=("Segoe UI", 10),
-            bg="#181825",
-            fg="#A6ADC8" if config_manager.is_tts_allowed(self.tier_key) else "#45475A",
+            bg=COLOR_CONTAINER,
+            fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
             cursor="hand2"
         )
         self.tts_btn.pack(side="right", padx=(8, 0))
@@ -137,8 +148,8 @@ class WatThisApp:
             self.header_frame,
             text="Esc to close",
             font=("Segoe UI", 8),
-            bg="#181825",
-            fg="#6C7086"
+            bg=COLOR_CONTAINER,
+            fg="#6E7681"
         )
         self.hint_lbl.pack(side="right")
 
@@ -146,9 +157,9 @@ class WatThisApp:
         self.content_lbl = tk.Label(
             self.container,
             text="",
-            font=("Segoe UI Variable Text", 10),
-            bg="#181825",
-            fg="#CDD6F4",
+            font=("Segoe UI", 10),
+            bg=COLOR_CONTAINER,
+            fg=COLOR_TEXT_MAIN,
             wraplength=440,
             justify="left",
             anchor="w"
@@ -156,15 +167,15 @@ class WatThisApp:
         self.content_lbl.pack(fill="both", expand=True, padx=16, pady=(4, 10))
 
         # Follow-Up Expand Frame
-        self.follow_up_frame = tk.Frame(self.container, bg="#11111B", bd=1, relief="solid", highlightbackground="#313244", highlightthickness=1)
+        self.follow_up_frame = tk.Frame(self.container, bg=COLOR_DRAWER_BG, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
         self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
 
         self.expand_prompt_lbl = tk.Label(
             self.follow_up_frame,
             text="💬  Press Tab or click to ask follow-up...",
             font=("Segoe UI", 8),
-            bg="#11111B",
-            fg="#6C7086",
+            bg=COLOR_DRAWER_BG,
+            fg=COLOR_TEXT_SEC,
             cursor="hand2",
             pady=4
         )
@@ -172,16 +183,16 @@ class WatThisApp:
         self.expand_prompt_lbl.bind("<Button-1>", lambda e: self.toggle_follow_up(True))
 
         # Input Box for Chat Follow-up (hidden until expanded)
-        self.input_box_frame = tk.Frame(self.follow_up_frame, bg="#11111B")
+        self.input_box_frame = tk.Frame(self.follow_up_frame, bg=COLOR_DRAWER_BG)
         
         self.chat_entry = tk.Entry(
             self.input_box_frame,
             font=("Segoe UI", 9),
-            bg="#1E1E2E",
-            fg="#CDD6F4",
-            insertbackground="#89B4FA",
+            bg=COLOR_CONTAINER,
+            fg=COLOR_TEXT_MAIN,
+            insertbackground="#388BFD",
             bd=0,
-            highlightbackground="#45475A",
+            highlightbackground=COLOR_BORDER,
             highlightthickness=1,
             relief="flat"
         )
@@ -193,9 +204,10 @@ class WatThisApp:
             self.input_box_frame,
             text="Ask",
             font=("Segoe UI", 8, "bold"),
-            bg="#89B4FA",
-            fg="#11111B",
-            activebackground="#B4BEFE",
+            bg="#388BFD",
+            fg="#FFFFFF",
+            activebackground="#2563EB",
+            activeforeground="#FFFFFF",
             bd=0,
             padx=10,
             pady=3,
