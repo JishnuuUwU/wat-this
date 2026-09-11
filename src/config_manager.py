@@ -1,6 +1,8 @@
 import os
 import sys
 import json
+import urllib.request
+import subprocess
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
@@ -22,6 +24,31 @@ DEFAULT_CONFIG = {
     "linger_duration_ms": 14000,
     "max_clipboard_chars": 12000,
     "ollama_url": "http://localhost:11434",
+    "autostart": False,
+    "tts_enabled": False,
+    "tts_hotkey": "ctrl+alt+s",
+    "modes": {
+        "explain": {
+            "name": "Explain & Teach",
+            "hotkey": "ctrl+alt+space",
+            "prompt_suffix": "Explain what this is in plain English with a helpful analogy if it's code. Keep it clear, friendly, and accessible."
+        },
+        "fix": {
+            "name": "Fix & Bug Detector",
+            "hotkey": "ctrl+alt+f",
+            "prompt_suffix": "Carefully analyze the target code. Identify bugs, syntax errors, or performance issues. Explain the problem concisely and provide the corrected code snippet."
+        },
+        "simplify": {
+            "name": "Simplify (ELI5)",
+            "hotkey": "ctrl+alt+t",
+            "prompt_suffix": "Rewrite and explain this text or concept for an absolute beginner as if explaining to a 10-year-old. Remove all technical jargon."
+        },
+        "docstring": {
+            "name": "Generate Docstrings & Types",
+            "hotkey": "ctrl+alt+d",
+            "prompt_suffix": "Generate complete, clean, professional documentation/docstrings and type hints for this code. Format it according to the language's best conventions."
+        }
+    },
     "tiers": {
         "lite": {
             "name": "Lite",
@@ -103,3 +130,68 @@ def get_tier_spec(tier_key=None):
     if not tier_key:
         tier_key = cfg.get("active_tier", "normal")
     return cfg.get("tiers", {}).get(tier_key, DEFAULT_CONFIG["tiers"]["normal"])
+
+def get_modes():
+    cfg = load_config()
+    return cfg.get("modes", DEFAULT_CONFIG["modes"])
+
+def get_mode_spec(mode_name):
+    modes = get_modes()
+    return modes.get(mode_name, DEFAULT_CONFIG["modes"].get("explain"))
+
+def get_installed_ollama_models(ollama_url="http://localhost:11434"):
+    """Queries Ollama API tags to return a list of model names installed on the system."""
+    try:
+        req = urllib.request.Request(f"{ollama_url.rstrip('/')}/api/tags")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return [m.get("name") for m in data.get("models", []) if "name" in m]
+    except Exception:
+        return []
+
+def get_startup_shortcut_path():
+    appdata = os.environ.get("APPDATA", "")
+    if not appdata:
+        return None
+    return os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Startup\wat-this.lnk")
+
+def is_windows_autostart_enabled():
+    path = get_startup_shortcut_path()
+    return os.path.exists(path) if path else False
+
+def set_windows_autostart(enable=True):
+    """Configures Windows Startup shortcut via native Windows WScript.Shell (zero DLLs)."""
+    shortcut_path = get_startup_shortcut_path()
+    if not shortcut_path:
+        return False, "APPDATA environment variable not found"
+        
+    cfg = load_config()
+    cfg["autostart"] = bool(enable)
+    save_config(cfg)
+
+    if not enable:
+        if os.path.exists(shortcut_path):
+            try:
+                os.remove(shortcut_path)
+            except Exception as e:
+                return False, str(e)
+        return True, "Autostart disabled"
+
+    target_bat = os.path.join(PROJECT_ROOT, "SETUP.bat")
+    ps_cmd = (
+        f"$s = (New-Object -COM WScript.Shell).CreateShortcut('{shortcut_path}'); "
+        f"$s.TargetPath = '{target_bat}'; "
+        f"$s.WorkingDirectory = '{PROJECT_ROOT}'; "
+        f"$s.Save()"
+    )
+    try:
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        return True, "Autostart enabled"
+    except Exception as e:
+        return False, str(e)
+

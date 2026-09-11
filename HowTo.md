@@ -1,119 +1,89 @@
 # Setup and Usage Guide: `wat-this`
 
-This guide walks you through setting up, configuring, using, and managing the `wat-this` desktop assistant on Windows.
+This guide walks you through setting up, configuring, using, and managing the `wat-this` ambient desktop copilot on Windows 10 & 11.
 
 ---
 
 ## 1. Prerequisites
 
-1. **Operating System**: Windows 10 or 11 (64-bit).
-2. **Python**: Python 3.10+ installed.
-   > **Note**: During Python setup, ensure **"Add python.exe to PATH"** is checked.
-3. **Ollama**: Download and install the Windows client from [ollama.com/download](https://ollama.com/download).
-
----
-
-## 2. Environment Setup
-
-1. Open PowerShell and navigate to the project directory:
+1. **Operating System**: Windows 10 or 11 (64-bit). Fully compatible with **Smart App Control (SAC)** and **WDAC** via zero-DLL architecture.
+2. **Python**: Python 3.10+ (Python 3.12 recommended).
+3. **Ollama**: Download and install from [ollama.com/download](https://ollama.com/download) or install via winget:
    ```powershell
-   cd c:\Users\jishn\Documents\project\wat-this
-   ```
-
-2. *(Recommended)* Create and activate an isolated Python virtual environment:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\Activate.ps1
-   ```
-   > If PowerShell restricts script execution, run:  
-   > `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
-
-3. Install required packages:
-   ```powershell
-   pip install PyQt6 requests pyperclip keyboard duckduckgo_search
+   winget install Ollama.Ollama -e --accept-package-agreements
    ```
 
 ---
 
-## 3. First-Time Setup Wizard
+## 2. One-Click Setup & Launch
 
-To launch the setup wizard:
-- Simply **double-click `SETUP.bat`** in the project folder.
+To start `wat-this` or configure settings:
+- Simply **double-click `SETUP.bat`** in the project root.
 
-### What the Wizard Does:
-- **1. Engine Status**: Probes `http://localhost:11434/api/version` to confirm Ollama is active. Inspects Python 3.12 status and available physical RAM.
-- **2. Model Tiers & Installation**:
-  - **Lite Tier (`< 2 GB RAM`)**: Installs `smollm2:1.7b` (Hugging Face). Fast, minimal memory, offline.
-  - **Normal Tier (`3 – 5 GB RAM`)**: Installs `llama3.2:3b` (Meta). Balanced coding analogies + web search. *(Recommended)*
-  - **Extreme Tier (`6 – 10 GB RAM`)**: Installs `mistral:7b` (Mistral AI). Deep technical reasoning and code analysis.
-  - Select your preferred tier and click **"Install / Pull Selected Tier Model"**. A live progress bar will track the download percentage and byte count directly from Ollama.
-  - Once finished, click **"Set as Active Tier"**.
-- **3. Preferences**:
-  - Customize the global hotkey (default: `ctrl+alt+space`).
-  - Toggle **Auto-copy** (simulates `Ctrl+C` when the hotkey is triggered).
-  - Adjust HUD linger duration before auto-fade.
-- **4. Launch**: Click the **"Launch wat-this"** button at the bottom right.
+`SETUP.bat` automatically verifies your environment, ensures background services are ready, and launches the configuration wizard.
 
 ---
 
-## 4. Daily Usage Workflow
+## 3. The Setup Wizard Tabs
 
-1. **Start wat-this**:
-   Click **"Launch wat-this"** in the Setup Wizard, or run:
-   ```powershell
-   pythonw src/wat_this.py
-   ```
-   The assistant runs silently in the background.
+### Tab 1: Diagnostics
+- Probes `http://localhost:11434/api/version` to confirm Ollama is active.
+- Reads host physical and available RAM to suggest an optimal model tier profile.
+- Offers a one-click button to spawn the Ollama server daemon if offline.
 
-2. **Trigger the Explainer**:
-   - Highlight any unfamiliar term, error log, or code snippet in any browser, IDE, or document.
-   - Press **`Ctrl + Alt + Space`**.
-   - The HUD card smoothly fades in adjacent to your cursor and begins following mouse movements.
-   - For code, it gives an intuitive real-world analogy. For concepts, it pulls live context.
+### Tab 2: Models & Install
+- **Lite Tier (`< 2 GB RAM`)**: `smollm2:1.7b` (Hugging Face). Ultra-low memory, sub-second responses, offline.
+- **Normal Tier (`3 – 5 GB RAM`)**: `llama3.2:3b` (Meta). Balanced intelligence, everyday code analogies, DuckDuckGo search enrichment. *(Recommended)*
+- **Extreme Tier (`6 – 10 GB RAM`)**: `mistral:7b` (Mistral AI). Deep technical reasoning, architectural breakdown, and synthesis.
+- Click **"Install / Pull Selected Tier Model"** to download with live progress. Once downloaded, click **"Set as Active Tier"**.
 
-3. **Dismiss the Card**:
-   - Press **`Escape`** for immediate dismissal.
-   - Or click anywhere on the card.
-   - Or wait 14 seconds for the automatic fade-out animation.
+### Tab 3: Knowledge Notebook & Exports
+- Automatically logs all explained snippets, active model, latency metrics, and responses.
+- Real-time search filter by keyword or model name.
+- **"Export to Markdown"**: Generates a formatted `wat_this_notebook.md` notebook ready for Obsidian, Notion, or personal notes.
+- **"Clear All"**: Wipes history records with confirmation.
 
-4. **Switching Tiers on the Fly**:
-   - Right-click the `wat-this` icon in the system tray.
-   - Expand the **Model Tier** menu and select **Lite**, **Normal**, or **Extreme**. The HUD immediately updates its active profile.
+### Tab 4: Preferences & Specialized Modes
+- **Start with Windows**: One-click toggle to launch `wat-this` silently on Windows startup (uses clean `%APPDATA%\Startup` shortcut).
+- **Auto-Speak with Windows TTS**: Automatically reads explanations aloud using native Windows SAPI.
+- **Global Hotkey Table**: Review and customize hotkeys.
+- **HUD Linger Duration**: Set auto-dismiss timer (4 to 60 seconds).
 
-5. **Exiting**:
-   - Right-click the system tray icon and select **Quit wat-this**.
-
----
-
-## 5. Uninstallation & Disk Cleanup
-
-To reclaim storage space taken by downloaded models:
-
-1. Open the wizard: Double-click **`SETUP.bat`**.
-2. Navigate to the **"4. Uninstall & Cleanup"** tab.
-3. The wizard enumerates all `wat-this` models on your system alongside their exact disk footprints (e.g. `llama3.2:3b — 2.00 GB`).
-4. Click **Delete** next to any model to immediately remove it via the Ollama engine.
-5. Click **"Reset Config to Defaults"** if you want to reset your local preferences.
+### Tab 5: Storage & Cleanup
+- View exact disk space occupied by downloaded models.
+- One-click deletion of models to immediately reclaim gigabytes of disk space.
 
 ---
 
-## 6. Troubleshooting
+## 4. Multi-Action Workflow & Hotkeys
 
-### Issue: "Python was not found; run without arguments to install from the Microsoft Store..."
-**Cause**: The Windows App Execution Alias is intercepting the `python` command.  
-**Fix**:
-1. Open Windows **Settings** > **Apps** > **Advanced app settings** > **App execution aliases**.
-2. Turn off the toggles for **App Installer (python.exe)** and **App Installer (python3.exe)**.
-3. Re-open your terminal.
+`wat-this` features dedicated instant actions for engineers, researchers, and students:
 
-### Issue: "Engine Offline: Ensure your local Ollama server is running (`ollama serve`)."
-**Fix**:
-1. Check that the Ollama app is running in your Windows tray.
-2. If not running, open a terminal and execute:
-   ```powershell
-   ollama serve
-   ```
+| Action Mode | Global Hotkey | Purpose & Behavior |
+| :--- | :--- | :--- |
+| **Explain & Teach** | `Ctrl + Alt + Space` | Plain-English summary + everyday real-world analogy. |
+| **Fix & Bug Detector** | `Ctrl + Alt + F` | Analyzes code for syntax bugs or logic flaws and outputs fixed snippet. |
+| **Simplify (ELI5)** | `Ctrl + Alt + T` | Rewrites dense academic or legal text for an absolute beginner. |
+| **Generate Docstrings** | `Ctrl + Alt + D` | Generates clean docstrings, JSDoc, and type annotations for selected functions. |
+| **Text-to-Speech (Audio)** | `Ctrl + Alt + S` | Reads current card text aloud via offline Windows voice. |
 
-### Issue: Hotkey does not trigger inside certain applications
-**Cause**: If the active window is running with Administrator permissions (e.g. Task Manager or an elevated shell), standard Windows user-space keyboard hooks are blocked for security.  
-**Fix**: Start your terminal / application by right-clicking and selecting **Run as Administrator**.
+---
+
+## 5. Interactive Conversational Follow-Up
+
+When the explanation card appears:
+1. Press **`Tab`** or click the bottom bar: **`💬 Press Tab to ask follow-up...`**
+2. An inline input drawer expands without leaving your active window.
+3. Type questions like:
+   - *"Show me an example in Go"*
+   - *"How do I fix this edge case?"*
+   - *"What does the second parameter do?"*
+4. Press **`Enter`** to stream the answer right into the card.
+
+---
+
+## 6. Closing & Dismissal
+
+- Press **`Escape`** for immediate dismissal.
+- Click anywhere on the card.
+- Or let the auto-fade timer (default: 14s) close it automatically once you finish reading.

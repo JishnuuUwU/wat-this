@@ -1,6 +1,6 @@
 # wat-this
 
-A lightweight, cursor-anchored desktop explainer powered by local LLMs (via Ollama) and PyQt6. Highlight any text or code snippet, trigger the global hotkey, and an ambient HUD appears beside your cursor with a plain-English explanation.
+A lightweight, cursor-anchored desktop ambient copilot powered by local LLMs (via Ollama) and a Zero-DLL Tkinter HUD. Highlight any text or code snippet, trigger a specialized hotkey, and an ambient HUD appears beside your cursor with plain-English explanations, bug fixes, or simplified breakdowns.
 
 <p align="center">
   <img src="assets/icon.png" width="128" height="128" alt="wat-this icon" style="border-radius: 24px;" />
@@ -10,20 +10,35 @@ A lightweight, cursor-anchored desktop explainer powered by local LLMs (via Olla
 
 ## Overview
 
-`wat-this` is an ambient, distraction-free reading and coding copilot for Windows. Rather than context-switching away from your active work:
+`wat-this` is an ambient, distraction-free reading and coding copilot for Windows 10 & 11. Fully compliant with **Windows Smart App Control (SAC)** and **WDAC** via a zero-DLL, signed standard library design.
 
-1. **Highlight text or code** in any application.
-2. **Press `Ctrl + Alt + Space`** (auto-copies selection).
-3. **Read the explanation** streamed directly beside your cursor in a floating dark-mode card.
-4. **Dismiss effortlessly** via `Esc`, clicking the card, or letting the 14-second timer smoothly fade it away.
+1. **Highlight text or code** in any browser, IDE, or document.
+2. **Press a specialized hotkey**:
+   - `Ctrl + Alt + Space`: **Explain Mode** (Plain English + real-world analogy).
+   - `Ctrl + Alt + F`: **Fix Mode** (Detects bugs and provides corrected code).
+   - `Ctrl + Alt + T`: **Simplify Mode** (Rewrites jargon for a beginner / ELI5).
+   - `Ctrl + Alt + D`: **Docstring Mode** (Generates clean docs and type hints).
+   - `Ctrl + Alt + S`: **Listen (TTS)** (Speaks output aloud via offline Windows SAPI).
+3. **Ask follow-up questions inline**: Hit `Tab` to expand an interactive chat input right on the card.
+4. **Knowledge Notebook**: All queries and answers are recorded locally and can be exported to Markdown for Obsidian or Notion.
 
-The system includes a dedicated **Setup & Maintenance Wizard** (`wat_this_setup.py`) that handles Ollama diagnostics, downloads models with live progress bars, configures hotkeys, and cleanly deletes models when you need to free up disk space.
+---
+
+## Multi-Action Modes & Hotkeys
+
+| Mode | Hotkey | Goal |
+| :--- | :--- | :--- |
+| **Explain & Teach** | `Ctrl + Alt + Space` | Plain-language concepts, code analogies, DuckDuckGo web enrichment. |
+| **Fix & Bug Detector** | `Ctrl + Alt + F` | Syntactic and logic bug analysis with instant copyable patch. |
+| **Simplify (ELI5)** | `Ctrl + Alt + T` | Elementary-level simplification for dense academic or legal text. |
+| **Docstrings & Types** | `Ctrl + Alt + D` | Clean, standardized function documentation & type annotations. |
+| **Offline Audio TTS** | `Ctrl + Alt + S` | Offline voice readout powered by Windows `System.Speech`. |
 
 ---
 
 ## Memory & Performance Tiers
 
-`wat-this` enforces strict RAM budgets and resource management, dynamically releasing model weights back to the OS when idle (`keep_alive` timeouts) to avoid VRAM hoarding.
+`wat-this` enforces strict RAM budgets and resource management, dynamically releasing model weights back to the OS when idle (`keep_alive` timeouts) to avoid memory hoarding.
 
 | Tier | Target RAM | Model & Family | Context Length | Web Context | Best For |
 |---|---|---|---|---|---|
@@ -37,46 +52,31 @@ The system includes a dedicated **Setup & Maintenance Wizard** (`wat_this_setup.
 
 ```mermaid
 flowchart TD
-    User([User Highlights Text & Presses Ctrl+Alt+Space]) --> AutoCopy[Auto-copy simulation: Win32 keybd_event Ctrl+C]
+    User([User Highlights Text & Triggers Hotkey]) --> AutoCopy[Auto-copy simulation: Win32 keybd_event Ctrl+C]
     AutoCopy --> InputGate[Clipboard Check & 12,000-char safety clamp]
-    InputGate --> UI_Launch[HUD emerges at cursor with mouse-following timer]
-    InputGate --> EngineRouter{Read Active Tier Config}
+    InputGate --> UI_Launch[Tkinter HUD emerges at cursor with boundary clamping]
+    InputGate --> EngineRouter{Read Active Tier & Mode Config}
     
     subgraph Tier_Profiles["Resource Profiles"]
-        EngineRouter -->|Lite Tier| LiteExec[smollm2:1.7b • keep_alive 1m • No web search]
-        EngineRouter -->|Normal Tier| NormExec[llama3.2:3b • keep_alive 5m • DuckDuckGo search]
-        EngineRouter -->|Extreme Tier| ExtExec[mistral:7b • keep_alive 15m • Deep analysis]
+        EngineRouter -->|Lite Tier| LiteExec[smollm2:1.7b • keep_alive 1m • Offline]
+        EngineRouter -->|Normal Tier| NormExec[llama3.2:3b • keep_alive 5m • DuckDuckGo Search]
+        EngineRouter -->|Extreme Tier| ExtExec[mistral:7b • keep_alive 15m • Deep Analysis]
     end
 
-    subgraph Streaming_Engine["Ollama REST Stream"]
+    subgraph Streaming_Engine["Local Ollama REST Daemon :11434"]
         LiteExec --> API[POST /api/generate stream=True]
         NormExec --> API
         ExtExec --> API
-        API -->|Token Chunks| TokenBus[AppSignals.token_received]
+        API -->|Streaming Tokens| CardRender[Real-time Token Renderer]
     end
 
-    subgraph Presentation["PyQt6 Presentation Layer"]
-        TokenBus --> CardRender[Markdown rendering & dynamic resize]
-        TokenBus --> StreamEnd[AppSignals.stream_finished]
-        StreamEnd --> Linger[14s Linger Period or instant Esc dismiss]
-        Linger --> FadeExit[Opacity Fade Out & Memory Release]
+    subgraph Extensions["Interactive Expansions"]
+        CardRender --> TabKey{User Hits Tab?}
+        TabKey -->|Yes| InlineChat[Inline Follow-Up Chat Drawer /api/chat]
+        CardRender --> TTSAudio[Windows SAPI Speech Synthesizer Ctrl+Alt+S]
+        CardRender --> HistoryLog[Local JSON Knowledge Notebook]
     end
 ```
-
----
-
-## Setup & Maintenance Wizard
-
-`wat-this` features a **single one-click setup file** right at the root of the project:
-
-- Simply **double-click `SETUP.bat`**.
-
-All complex scripts, configuration files, and engines are cleanly tucked inside `src/`. `SETUP.bat` automatically verifies your environment and opens the Setup & Maintenance Wizard:
-
-1. **Engine Diagnostics**: Confirms Ollama daemon health (`/api/version`), Python 3.12 status, and available physical system RAM.
-2. **Model Tiers & Installer**: Visual cards for Lite, Normal, and Extreme tiers. Includes an **Install / Pull** button that streams live download progress from Ollama (`/api/pull`) with real-time percentage and byte tracking.
-3. **Preferences**: Configure custom hotkeys, toggle auto-copy simulation, and tune HUD display duration.
-4. **Uninstall & Cleanup**: Inspects downloaded models and their exact disk footprint. Provides one-click deletion (`DELETE /api/delete`) to reclaim gigabytes of disk space, or restores default settings.
 
 ---
 
@@ -92,10 +92,12 @@ wat-this/
     ├── wat_this.py         Main Ambient Agent (Tkinter Zero-DLL)
     ├── setup.py            Setup & Maintenance GUI Wizard
     ├── config_manager.py   Configuration & Tier Manager
+    ├── history_manager.py  Knowledge Notebook & Markdown Exporter
+    ├── tts_helper.py       Windows SAPI Text-to-Speech Engine
     ├── search_helper.py    Pure-Python Web Search Engine
-    ├── config.json         Active Tier & Performance Settings
-    └── LucidApp.py         Backward-compatibility Forwarder
+    └── config.json         Active Tier & Performance Settings
 ```
+
 
 ---
 

@@ -5,6 +5,31 @@
   "linger_duration_ms": 14000,
   "max_clipboard_chars": 12000,
   "ollama_url": "http://localhost:11434",
+  "autostart": false,
+  "tts_enabled": false,
+  "tts_hotkey": "ctrl+alt+s",
+  "modes": {
+    "explain": {
+      "name": "Explain & Teach",
+      "hotkey": "ctrl+alt+space",
+      "prompt_suffix": "Explain what this is in plain English with a helpful analogy if it's code. Keep it clear, friendly, and accessible."
+    },
+    "fix": {
+      "name": "Fix & Bug Detector",
+      "hotkey": "ctrl+alt+f",
+      "prompt_suffix": "Carefully analyze the target code. Identify bugs, syntax errors, or performance issues. Explain the problem concisely and provide the corrected code snippet."
+    },
+    "simplify": {
+      "name": "Simplify (ELI5)",
+      "hotkey": "ctrl+alt+t",
+      "prompt_suffix": "Rewrite and explain this text or concept for an absolute beginner as if explaining to a 10-year-old. Remove all technical jargon."
+    },
+    "docstring": {
+      "name": "Generate Docstrings & Types",
+      "hotkey": "ctrl+alt+d",
+      "prompt_suffix": "Generate complete, clean, professional documentation/docstrings and type hints for this code. Format it according to the language's best conventions."
+    }
+  },
   "tiers": {
     "lite": {
       "name": "Lite",
@@ -22,7 +47,7 @@
       "name": "Normal",
       "model": "llama3.2:3b",
       "family": "Meta Llama 3.2",
-      "ram_target": "3 – 5 GB RAM",
+      "ram_target": "3 \u2013 5 GB RAM",
       "tagline": "Balanced Intelligence (Recommended)",
       "description": "Powered by Meta's Llama 3.2 3B. High-accuracy instruction following, code analogies, and DuckDuckGo live web search enrichment.",
       "web_search": true,
@@ -34,7 +59,7 @@
       "name": "Extreme (Expert)",
       "model": "mistral:7b",
       "family": "Mistral AI",
-      "ram_target": "6 – 10 GB RAM",
+      "ram_target": "6 \u2013 10 GB RAM",
       "tagline": "Deep Technical Reasoning & Code Analysis",
       "description": "Powered by Mistral AI 7B. Comprehensive reasoning engine delivering architectural analysis, code edge-case detection, and synthesis.",
       "web_search": true,
