@@ -224,8 +224,16 @@ class SetupApp:
             self.badge_labels[key] = badge
 
             family_info = f"[{spec.get('family', '')}] " if spec.get("family") else ""
-            meta = f"{family_info}Model: {spec.get('model')} | Web Context: {'Enabled' if spec.get('web_search') else 'Disabled (Offline)'}"
+            meta = f"{family_info}Model: {spec.get('model')} | RAM Budget: {spec.get('ram_target')}"
             tk.Label(card, text=meta, font=("Segoe UI", 8, "bold"), bg="#11111B", fg="#89B4FA").pack(anchor="w", padx=32, pady=(0, 2))
+
+            # Feature capabilities row
+            modes_str = ", ".join([m.capitalize() for m in spec.get("allowed_modes", [])])
+            chat_str = f"Chat: {'Enabled' if spec.get('interactive_chat') else 'Locked'}"
+            tts_str = f"TTS: {'Enabled' if spec.get('tts_audio') else 'Locked'}"
+            web_str = f"Web: {'Enabled' if spec.get('web_search') else 'Offline'}"
+            feats = f"• Modes: {modes_str}  |  {chat_str}  |  {tts_str}  |  {web_str}  |  Keep-Alive: {spec.get('keep_alive')}"
+            tk.Label(card, text=feats, font=("Consolas", 8), bg="#11111B", fg="#A6E3A1").pack(anchor="w", padx=32, pady=(0, 3))
 
             tk.Label(card, text=spec.get("description", ""), font=("Segoe UI", 9), bg="#11111B", fg="#BAC2DE", wraplength=580, justify="left").pack(anchor="w", padx=32, pady=(0, 8))
 
@@ -414,15 +422,21 @@ class SetupApp:
         modes = config_manager.get_modes()
         for m_key, m_info in modes.items():
             row = tk.Frame(hk_box, bg="#11111B")
-            row.pack(fill="x", padx=12, pady=2)
+            row.pack(fill="x", padx=12, pady=3)
             tk.Label(row, text=f"• {m_info.get('name')}:", font=("Segoe UI", 9), bg="#11111B", fg="#BAC2DE", width=24, anchor="w").pack(side="left")
             tk.Label(row, text=m_info.get('hotkey', '').upper(), font=("Consolas", 9, "bold"), bg="#1E1E2E", fg="#A6E3A1", padx=6, pady=1).pack(side="left")
+            
+            req_tier = m_info.get("required_tier", "lite").upper()
+            tier_badge_color = "#89B4FA" if req_tier == "LITE" else ("#A6E3A1" if req_tier == "NORMAL" else "#CBA6F7")
+            tier_lbl = f"[{req_tier}+]" if req_tier != "EXTREME" else "[EXTREME ONLY]"
+            tk.Label(row, text=tier_lbl, font=("Segoe UI", 8, "bold"), bg="#11111B", fg=tier_badge_color).pack(side="left", padx=10)
 
         # TTS Hotkey row
         row_tts = tk.Frame(hk_box, bg="#11111B")
-        row_tts.pack(fill="x", padx=12, pady=(2, 10))
+        row_tts.pack(fill="x", padx=12, pady=(3, 10))
         tk.Label(row_tts, text="• Text-to-Speech Audio:", font=("Segoe UI", 9), bg="#11111B", fg="#BAC2DE", width=24, anchor="w").pack(side="left")
         tk.Label(row_tts, text=self.config.get("tts_hotkey", "ctrl+alt+s").upper(), font=("Consolas", 9, "bold"), bg="#1E1E2E", fg="#A6E3A1", padx=6, pady=1).pack(side="left")
+        tk.Label(row_tts, text="[NORMAL+]", font=("Segoe UI", 8, "bold"), bg="#11111B", fg="#A6E3A1").pack(side="left", padx=10)
 
         # Linger Frame
         l_frame = tk.Frame(container, bg="#11111B", bd=1, relief="solid", highlightbackground="#313244", highlightthickness=1)

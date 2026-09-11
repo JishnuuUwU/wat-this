@@ -1,7 +1,9 @@
 """
 wat-this: Ambient Desktop Intelligence HUD.
-Zero-DLL, signed Tkinter floating copilot with multi-action hotkeys,
-interactive follow-up chat, history logging, and native offline Windows TTS.
+Zero-DLL, signed Tkinter floating copilot with strict tier-level feature gating:
+- Lite: Sub-2GB RAM, basic functions (Explain, Simplify), 1m unload, offline.
+- Normal: 3-5GB RAM, Fix Mode, web search, 2-turn chat, TTS audio, 5m cache.
+- Extreme: 6-10GB RAM, All modes (Docstrings/Types), unlimited chat, TTS, 15m cache.
 """
 import sys
 import os
@@ -22,8 +24,8 @@ import tts_helper
 
 MODE_COLORS = {
     "explain": "#89B4FA",    # Blue
-    "fix": "#A6E3A1",        # Green
     "simplify": "#F9E2AF",   # Peach/Yellow
+    "fix": "#A6E3A1",        # Green
     "docstring": "#CBA6F7"   # Mauve/Purple
 }
 
@@ -45,11 +47,13 @@ class WatThisApp:
         self.is_visible = False
         self.chat_expanded = False
         self.start_time = None
+        self.chat_turns = 0
 
         self.init_ui()
         self.register_all_hotkeys()
 
         print(f"[DEPLOYED] wat-this Active. Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
+        print(f"Allowed Modes in this tier: {', '.join(self.tier_spec.get('allowed_modes', []))}")
         print("Registered Hotkeys:")
         for m_key, m_spec in config_manager.get_modes().items():
             print(f"  - [{m_spec['name']}]: {m_spec['hotkey'].upper()}")
@@ -123,7 +127,7 @@ class WatThisApp:
             text="🔊",
             font=("Segoe UI", 10),
             bg="#181825",
-            fg="#A6ADC8",
+            fg="#A6ADC8" if config_manager.is_tts_allowed(self.tier_key) else "#45475A",
             cursor="hand2"
         )
         self.tts_btn.pack(side="right", padx=(8, 0))
@@ -232,16 +236,31 @@ class WatThisApp:
         self.root.after(0, self.speak_current_content)
 
     def speak_current_content(self):
+        if not config_manager.is_tts_allowed(self.tier_key):
+            self.hint_lbl.configure(text="TTS locked in Lite", fg="#F38BA8")
+            self.root.after(2500, lambda: self.hint_lbl.configure(text="Esc to close", fg="#6C7086"))
+            return
+
         if self.accumulated_text:
             tts_helper.speak_async(self.accumulated_text)
 
     def toggle_follow_up(self, expand=True):
+        if not config_manager.is_interactive_chat_allowed(self.tier_key):
+            return
+
+        max_turns = self.tier_spec.get("max_chat_turns", 2)
+        if self.chat_turns >= max_turns and self.tier_key != "extreme":
+            self.expand_prompt_lbl.configure(
+                text=f"Turn limit ({max_turns}) reached for {self.tier_spec.get('name')} tier. Upgrade to Extreme for unlimited.",
+                fg="#F9E2AF"
+            )
+            return
+
         if expand and not self.chat_expanded:
             self.chat_expanded = True
             self.expand_prompt_lbl.pack_forget()
             self.input_box_frame.pack(fill="x")
             self.chat_entry.focus_set()
-            # Stop auto-dismiss while user is typing
             if self.linger_timer_id:
                 self.root.after_cancel(self.linger_timer_id)
                 self.linger_timer_id = None
@@ -263,6 +282,50 @@ class WatThisApp:
         tts_helper.stop_speech()
         self.current_mode = mode
 
+        # Reload active tier
+        self.tier_key, self.tier_spec = config_manager.get_active_tier()
+        tier_name = self.tier_spec.get("name", "NORMAL").upper()
+        tier_ram = self.tier_spec.get("ram_target", "")
+        self.tier_badge_lbl.configure(text=f" {tier_name} ({tier_ram}) ")
+
+        # Update TTS button appearance according to tier
+        tts_ok = config_manager.is_tts_allowed(self.tier_key)
+        self.tts_btn.configure(fg="#A6ADC8" if tts_ok else "#45475A")
+
+        # ----------------------------------------------------
+        # TIER LEVEL FEATURE GATING ENFORCEMENT
+        # ----------------------------------------------------
+        if not config_manager.is_mode_allowed_in_tier(mode, self.tier_key):
+            mode_spec = config_manager.get_mode_spec(mode)
+            req_tier = mode_spec.get("required_tier", "normal").upper()
+            
+            self.mode_badge_lbl.configure(
+                text=" 🔒 TIER LOCKED ",
+                fg="#F38BA8",
+                highlightbackground="#F38BA8"
+            )
+            self.container.configure(highlightbackground="#F38BA8")
+            self.content_lbl.configure(
+                text=(
+                    f"Feature '{mode_spec.get('name')}' is locked in the {tier_name} profile.\n\n"
+                    f"• Required Tier: {req_tier}\n"
+                    f"• Active Profile: {tier_name} ({tier_ram})\n\n"
+                    f"Open SETUP.bat to upgrade your model tier."
+                ),
+                fg="#F38BA8"
+            )
+            self.follow_up_frame.pack_forget()
+            self.follow_mouse()
+            self.root.deiconify()
+            self.root.attributes("-alpha", 0.98)
+            self.is_visible = True
+            
+            if self.linger_timer_id:
+                self.root.after_cancel(self.linger_timer_id)
+            self.linger_timer_id = self.root.after(7000, self.hide_hud)
+            return
+
+        # Feature allowed: execute pipeline
         if self.config.get("auto_copy", True):
             pyperclip.copy("")
             self.simulate_copy()
@@ -284,13 +347,8 @@ class WatThisApp:
 
         self.current_snippet = text
         self.conversation_history = []
+        self.chat_turns = 0
         self.start_time = time.time()
-
-        # Reload active tier
-        self.tier_key, self.tier_spec = config_manager.get_active_tier()
-        tier_name = self.tier_spec.get("name", "NORMAL").upper()
-        tier_ram = self.tier_spec.get("ram_target", "")
-        self.tier_badge_lbl.configure(text=f" {tier_name} ({tier_ram}) ")
 
         # Mode styling
         mode_spec = config_manager.get_mode_spec(mode)
@@ -301,11 +359,27 @@ class WatThisApp:
             highlightbackground=mode_color
         )
 
-        # Reset follow-up state
+        # Configure follow-up frame visibility based on tier
         self.chat_expanded = False
         self.input_box_frame.pack_forget()
-        self.expand_prompt_lbl.pack(fill="x")
         self.chat_entry.delete(0, tk.END)
+
+        if config_manager.is_interactive_chat_allowed(self.tier_key):
+            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+            self.expand_prompt_lbl.configure(
+                text="💬  Press Tab or click to ask follow-up...",
+                fg="#6C7086",
+                cursor="hand2"
+            )
+            self.expand_prompt_lbl.pack(fill="x")
+        else:
+            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+            self.expand_prompt_lbl.configure(
+                text="🔒 Follow-up chat unlocked in Normal & Extreme tiers",
+                fg="#45475A",
+                cursor="arrow"
+            )
+            self.expand_prompt_lbl.pack(fill="x")
 
         # Cancel previous tasks
         if self.active_abort_event:
@@ -403,8 +477,8 @@ class WatThisApp:
             latency_s=elapsed
         )
 
-        # Auto-TTS if enabled
-        if self.config.get("tts_enabled", False):
+        # Auto-TTS if enabled and allowed in this tier
+        if self.config.get("tts_enabled", False) and config_manager.is_tts_allowed(self.tier_key):
             self.speak_current_content()
 
         # Linger timer unless user is interacting with chat
@@ -413,15 +487,19 @@ class WatThisApp:
             self.linger_timer_id = self.root.after(linger_ms, self.hide_hud)
 
     def submit_follow_up(self):
+        if not config_manager.is_interactive_chat_allowed(self.tier_key):
+            return
+
         query = self.chat_entry.get().strip()
         if not query or self.is_thinking:
             return
 
+        self.chat_turns += 1
         self.chat_entry.delete(0, tk.END)
         self.is_thinking = True
         self.content_lbl.configure(text=f"Q: {query}\n\nThinking...", fg="#89B4FA")
         
-        # Build multi-turn context
+        # Multi-turn context
         messages = [
             {"role": "system", "content": self.tier_spec.get("system_prompt", "")},
             {"role": "user", "content": f"Context/Snippet:\n{self.current_snippet}"},
@@ -504,7 +582,7 @@ class WatThisApp:
     def run_ai_pipeline(self, text, mode, abort_event):
         spec = self.tier_spec
         target_model = spec.get("model", "llama3.2:3b")
-        allow_web = spec.get("web_search", True)
+        allow_web = config_manager.is_web_search_allowed(self.tier_key)
         keep_alive = spec.get("keep_alive", "5m")
         base_prompt = spec.get("system_prompt", "Explain what this is clearly.")
         
@@ -518,7 +596,7 @@ class WatThisApp:
         is_code = any(indicator in text for indicator in code_indicators) or (len(text) > 20 and "  " in text and ("=" in text or "(" in text or "{" in text))
 
         web_context = ""
-        # Web search only enabled for Explain mode if allowed
+        # Web search only enabled for Explain mode if allowed in this tier
         if mode == "explain" and allow_web and not is_code and not abort_event.is_set():
             results = search_helper.search_duckduckgo(text, max_results=2)
             if results:

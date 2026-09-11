@@ -26,25 +26,25 @@ A lightweight, cursor-anchored desktop ambient copilot powered by local LLMs (vi
 
 ## Multi-Action Modes & Hotkeys
 
-| Mode | Hotkey | Goal |
-| :--- | :--- | :--- |
-| **Explain & Teach** | `Ctrl + Alt + Space` | Plain-language concepts, code analogies, DuckDuckGo web enrichment. |
-| **Fix & Bug Detector** | `Ctrl + Alt + F` | Syntactic and logic bug analysis with instant copyable patch. |
-| **Simplify (ELI5)** | `Ctrl + Alt + T` | Elementary-level simplification for dense academic or legal text. |
-| **Docstrings & Types** | `Ctrl + Alt + D` | Clean, standardized function documentation & type annotations. |
-| **Offline Audio TTS** | `Ctrl + Alt + S` | Offline voice readout powered by Windows `System.Speech`. |
+| Mode | Hotkey | Required Tier | Capabilities |
+| :--- | :--- | :--- | :--- |
+| **Explain & Teach** | `Ctrl + Alt + Space` | **Lite+** | Plain-language concepts, code analogies, DuckDuckGo web enrichment. |
+| **Simplify (ELI5)** | `Ctrl + Alt + T` | **Lite+** | Elementary-level simplification for dense academic or legal text. |
+| **Fix & Bug Detector** | `Ctrl + Alt + F` | **Normal+** | Syntactic and logic bug analysis with instant copyable patch. |
+| **Generate Docstrings** | `Ctrl + Alt + D` | **Extreme** | Clean, standardized function documentation & type annotations. |
+| **Offline Audio TTS** | `Ctrl + Alt + S` | **Normal+** | Offline voice readout powered by Windows `System.Speech`. |
 
 ---
 
 ## Memory & Performance Tiers
 
-`wat-this` enforces strict RAM budgets and resource management, dynamically releasing model weights back to the OS when idle (`keep_alive` timeouts) to avoid memory hoarding.
+`wat-this` strictly enforces RAM budgets and feature level gating, dynamically releasing model weights back to the OS when idle (`keep_alive` timeouts) to avoid memory hoarding.
 
-| Tier | Target RAM | Model & Family | Context Length | Web Context | Best For |
-|---|---|---|---|---|---|
-| **Lite** | `< 2 GB` | `smollm2:1.7b` *(Hugging Face)* | 2,048 tokens | Disabled (Offline) | Ultra-low memory, on-device efficiency, zero network latency |
-| **Normal** | `3 – 5 GB` | `llama3.2:3b` *(Meta)* | 4,096 tokens | DuckDuckGo Search | Everyday coding, code analogies, live web context *(Recommended)* |
-| **Extreme** | `6 – 10 GB` | `mistral:7b` *(Mistral AI)* | 8,192 tokens | DuckDuckGo Search | Deep technical breakdowns, edge-case detection, architectural synthesis |
+| Tier | Target RAM | Model & Family | Unlocked Modes | Interactive Chat | Offline TTS | Web Context | Keep-Alive |
+|---|---|---|---|---|---|---|---|
+| **Lite** | `< 2 GB` | `smollm2:1.7b` *(Hugging Face)* | Explain, Simplify | Locked | Locked | Disabled (100% Offline) | `1m` unload |
+| **Normal** | `3 – 5 GB` | `llama3.2:3b` *(Meta)* | Explain, Simplify, Fix | 2-Turn Follow-up | Enabled | DuckDuckGo Search | `5m` cache |
+| **Extreme** | `6 – 10 GB` | `mistral:7b` *(Mistral AI)* | All 4 Modes (+Docstrings) | Unlimited Multi-turn | Enabled | Deep Web Search | `15m` session cache |
 
 ---
 

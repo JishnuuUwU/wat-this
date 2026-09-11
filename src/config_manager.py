@@ -139,6 +139,23 @@ def get_mode_spec(mode_name):
     modes = get_modes()
     return modes.get(mode_name, DEFAULT_CONFIG["modes"].get("explain"))
 
+def is_mode_allowed_in_tier(mode_name, tier_key=None):
+    spec = get_tier_spec(tier_key)
+    allowed = spec.get("allowed_modes", ["explain", "simplify", "fix", "docstring"])
+    return mode_name in allowed
+
+def is_interactive_chat_allowed(tier_key=None):
+    spec = get_tier_spec(tier_key)
+    return spec.get("interactive_chat", False)
+
+def is_tts_allowed(tier_key=None):
+    spec = get_tier_spec(tier_key)
+    return spec.get("tts_audio", False)
+
+def is_web_search_allowed(tier_key=None):
+    spec = get_tier_spec(tier_key)
+    return spec.get("web_search", False)
+
 def get_installed_ollama_models(ollama_url="http://localhost:11434"):
     """Queries Ollama API tags to return a list of model names installed on the system."""
     try:
@@ -194,4 +211,5 @@ def set_windows_autostart(enable=True):
         return True, "Autostart enabled"
     except Exception as e:
         return False, str(e)
+
 
