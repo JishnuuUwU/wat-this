@@ -92,7 +92,6 @@ wat-this/
 └── src/                <-- Consolidated Engine, UI & Configuration
     ├── wat_this.py         Main Ambient Agent (Tkinter Zero-DLL)
     ├── setup.py            Setup & Maintenance GUI Wizard
-    ├── verify_proof.py     Live Verification & Test Proof Suite
     ├── config_manager.py   Configuration & Tier Manager
     ├── history_manager.py  Knowledge Notebook & Markdown Exporter
     ├── tts_helper.py       Windows SAPI Text-to-Speech Engine
