@@ -1,7 +1,7 @@
 """
 wat-this: Ambient Desktop Intelligence Copilot.
 Zero-DLL, signed Tkinter desktop application with:
-1. Windows Taskbar Companion Window (Always visible in taskbar with icon & status)
+1. Windows Status Bar (System Tray) icon near clock (zero taskbar clutter)
 2. Floating Cursor Overlay HUD (Emerges at mouse position on hotkey press)
 3. Strict tier-level gating (Lite, Normal, Extreme)
 4. Interactive follow-up chat, audio TTS, and local knowledge logging.

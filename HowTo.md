@@ -18,7 +18,7 @@ This guide walks you through setting up, configuring, using, and managing the `w
 ## 2. One-Click Setup & Launch
 
 To start using `wat-this` or customize configurations:
-- **`RUN_APP.bat`**: Double-click to launch the ambient copilot and taskbar companion immediately.
+- **`RUN_APP.bat`**: Double-click to launch the ambient copilot in the Windows Status Bar (System Tray near the clock).
 - **`SETUP.bat`**: Double-click to open the Setup & Tier Configuration Wizard (diagnostics, model installer, knowledge notebook).
 
 ---
