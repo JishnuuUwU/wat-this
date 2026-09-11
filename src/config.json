@@ -1,0 +1,46 @@
+{
+  "active_tier": "normal",
+  "hotkey": "ctrl+alt+space",
+  "auto_copy": true,
+  "linger_duration_ms": 14000,
+  "max_clipboard_chars": 12000,
+  "ollama_url": "http://localhost:11434",
+  "tiers": {
+    "lite": {
+      "name": "Lite",
+      "model": "smollm2:1.7b",
+      "family": "Hugging Face SmolLM2",
+      "ram_target": "< 2 GB RAM",
+      "tagline": "Fastest & Ultra-Low Memory Footprint",
+      "description": "Strictly optimized for sub-2GB RAM usage. Uses Hugging Face's compact on-device model for lightning-fast plain-language explanations with zero web overhead.",
+      "web_search": false,
+      "keep_alive": "1m",
+      "max_tokens": 2048,
+      "system_prompt": "You are an ultra-concise, plain-English explainer. Explain what the target text or code means for an absolute beginner. Keep your entire response within 2 gentle, clear sentences. No jargon."
+    },
+    "normal": {
+      "name": "Normal",
+      "model": "llama3.2:3b",
+      "family": "Meta Llama 3.2",
+      "ram_target": "3 – 5 GB RAM",
+      "tagline": "Balanced Intelligence (Recommended)",
+      "description": "Powered by Meta's Llama 3.2 3B. High-accuracy instruction following, code analogies, and DuckDuckGo live web search enrichment.",
+      "web_search": true,
+      "keep_alive": "5m",
+      "max_tokens": 4096,
+      "system_prompt": "You are an ultra-clear, calming, plain-English educator. Explain what the target text or code means for an absolute beginner. Do not use complex jargon. If it is code, state what it does in plain words using an everyday real-world analogy. Keep your full response contained within 3 to 4 gentle, clear sentences."
+    },
+    "extreme": {
+      "name": "Extreme (Expert)",
+      "model": "mistral:7b",
+      "family": "Mistral AI",
+      "ram_target": "6 – 10 GB RAM",
+      "tagline": "Deep Technical Reasoning & Code Analysis",
+      "description": "Powered by Mistral AI 7B. Comprehensive reasoning engine delivering architectural analysis, code edge-case detection, and synthesis.",
+      "web_search": true,
+      "keep_alive": "15m",
+      "max_tokens": 8192,
+      "system_prompt": "You are a senior principal engineer and technical mentor. Provide a precise, highly structured explanation of the target text or code. Explain core mechanics, highlight subtle edge cases or bugs if present, and give practical implementation insights in concise, clean bullet points or short paragraphs."
+    }
+  }
+}
