@@ -1000,16 +1000,16 @@ class SetupApp:
             subprocess.Popen([py_exec, main_script], cwd=config_manager.BASE_DIR)
             
             self.btn_launch.configure(
-                text="✓  Copilot Active on Taskbar",
+                text="✓  Copilot Active in Status Bar",
                 bg=COLOR_GREEN,
                 activebackground=COLOR_GREEN
             )
             messagebox.showinfo(
                 "wat-this Running",
-                "wat-this is now running on your Windows Taskbar!\n\n"
-                "• Check your taskbar for 'wat-this • Ambient Copilot'.\n"
+                "wat-this is now running in your Windows Status Bar (System Tray)!\n\n"
+                "• Look for the wat-this icon near your system clock.\n"
                 "• Highlight any text anywhere and press Ctrl + Alt + Space.\n"
-                "• You can minimize this setup window anytime."
+                "• Right-click the status bar icon for quick actions or settings."
             )
             self.root.iconify()
         except Exception as e:

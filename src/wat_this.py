@@ -19,8 +19,11 @@ import pyperclip
 import keyboard
 import queue
 import tkinter as tk
+from PIL import Image
+import pystray
+from pystray import MenuItem as item
 
-# Set explicit Windows AppUserModelID so Windows gives it its own dedicated Taskbar icon
+# Set explicit Windows AppUserModelID
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("watthis.ambientcopilot.app.1")
 except Exception:
@@ -102,130 +105,72 @@ class WatThisApp:
         self.chat_expanded = False
         self.start_time = None
         self.chat_turns = 0
+        self.anchor_x = 400
+        self.anchor_y = 300
+        self.fixed_width = 500
+        self.tray_icon = None
 
-        # Build Taskbar Companion Window + Floating Cursor HUD
-        self.init_taskbar_window()
+        # Hidden root + Windows Status Bar (System Tray) Icon + Floating Cursor HUD
+        self.init_app_environment()
+        self.init_tray_icon()
         self.init_hud_overlay()
         self.process_gui_queue()
         self.register_all_hotkeys()
         self.start_win32_hotkey_listener()
 
-        print(f"[DEPLOYED] wat-this Active. Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
-        print("Taskbar Companion active. Press hotkey anytime to trigger overlay.")
+        print(f"[STATUS BAR] wat-this Active in Windows Status Bar (System Tray). Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
+        print("Resident in Windows status bar. Press Ctrl+Alt+Space anytime to trigger HUD.")
 
     # ---------------------------------------------------------------------------
-    # 1. TASKBAR COMPANION WINDOW (Visible on Windows Taskbar)
+    # 1. APPLICATION ENVIRONMENT & WINDOWS STATUS BAR (SYSTEM TRAY)
     # ---------------------------------------------------------------------------
-    def init_taskbar_window(self):
+    def init_app_environment(self):
         self.root = tk.Tk()
         self.root.title("wat-this • Ambient Copilot")
-        self.root.geometry("440x260")
-        self.root.resizable(False, False)
-        self.root.configure(bg=COLOR_BG_DARK)
+        self.root.withdraw()  # Hidden from taskbar; resident in Windows status bar
 
-        # Set taskbar icon
-        if os.path.exists(config_manager.ICON_ICO_PATH):
+    def init_tray_icon(self):
+        try:
+            icon_path = config_manager.ICON_PATH
+            if os.path.exists(icon_path):
+                tray_img = Image.open(icon_path)
+            else:
+                tray_img = Image.new("RGB", (32, 32), color=(56, 139, 253))
+
+            tier_name = self.tier_spec.get("name", "Normal")
+            tier_ram = self.tier_spec.get("ram_target", "")
+
+            menu = pystray.Menu(
+                item("⚡  Trigger Copilot (Ctrl+Alt+Space)", lambda: self.event_queue.put(("hotkey", "explain"))),
+                item("🔍  Fix & Bug Detector (Ctrl+Alt+F)", lambda: self.event_queue.put(("hotkey", "fix"))),
+                item("📝  Simplify (ELI5) (Ctrl+Alt+T)", lambda: self.event_queue.put(("hotkey", "simplify"))),
+                item("🔊  Listen (TTS Audio) (Ctrl+Alt+S)", lambda: self.event_queue.put(("tts", None))),
+                pystray.Menu.SEPARATOR,
+                item(f"Active Profile: {tier_name} ({tier_ram})", None, enabled=False),
+                item("⚙️  Setup & Settings", lambda: self.open_setup()),
+                pystray.Menu.SEPARATOR,
+                item("✕  Exit wat-this", lambda: self.quit_app())
+            )
+
+            self.tray_icon = pystray.Icon(
+                "wat-this",
+                tray_img,
+                f"wat-this • Ambient Copilot ({tier_name})",
+                menu
+            )
+            self.tray_icon.default_action = lambda: self.event_queue.put(("hotkey", "explain"))
+            self.tray_icon.run_detached()
+            print(f"[STATUS BAR] wat-this icon added to Windows Status Bar (System Tray).")
+        except Exception as e:
+            print(f"[WARN] Tray icon initialization: {e}")
+
+    def update_tray_tooltip(self):
+        if getattr(self, "tray_icon", None):
             try:
-                self.root.iconbitmap(config_manager.ICON_ICO_PATH)
+                tier_name = self.tier_spec.get("name", "Normal")
+                self.tray_icon.title = f"wat-this • Ambient Copilot ({tier_name})"
             except Exception:
                 pass
-
-        # Position companion near bottom-right above taskbar
-        try:
-            screen_w = self.root.winfo_screenwidth()
-            screen_h = self.root.winfo_screenheight()
-            pos_x = max(20, screen_w - 470)
-            pos_y = max(20, screen_h - 320)
-            self.root.geometry(f"440x260+{pos_x}+{pos_y}")
-        except Exception:
-            pass
-
-        # Handle window minimize/close
-        self.root.protocol("WM_DELETE_WINDOW", self.on_companion_close)
-
-        # Card Container
-        card = tk.Frame(self.root, bg=COLOR_CONTAINER, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
-        card.pack(fill="both", expand=True, padx=12, pady=12)
-
-        # Header Row
-        hdr = tk.Frame(card, bg=COLOR_CONTAINER)
-        hdr.pack(fill="x", padx=16, pady=(14, 8))
-
-        # Brand Title
-        tk.Label(
-            hdr, text="wat-this", font=FONT_HERO,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN
-        ).pack(side="left")
-
-        tk.Label(
-            hdr, text=" Ambient Copilot", font=FONT_BODY,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_SEC
-        ).pack(side="left", padx=(2, 8))
-
-        # Status Pill
-        self.companion_status = tk.Label(
-            hdr, text=" ● Active & Listening ", font=FONT_MICRO,
-            bg=COLOR_GREEN_BG, fg=COLOR_GREEN, bd=1, relief="solid",
-            highlightbackground=COLOR_GREEN, highlightthickness=1, padx=6, pady=2
-        )
-        self.companion_status.pack(side="right")
-
-        # Profile info strip
-        tier_name = self.tier_spec.get("name", "Normal")
-        tier_ram = self.tier_spec.get("ram_target", "")
-        model_name = self.tier_spec.get("model", "")
-        self.companion_prof_lbl = tk.Label(
-            card, text=f"Active Profile: {tier_name} ({tier_ram})  |  Model: {model_name}",
-            font=FONT_BOLD, bg=COLOR_CONTAINER, fg=COLOR_BLUE
-        )
-        self.companion_prof_lbl.pack(anchor="w", padx=16, pady=(0, 10))
-
-        # Hotkey Guide Box
-        hk_box = tk.Frame(card, bg=COLOR_BG_DARK, bd=1, relief="solid", highlightbackground=COLOR_BORDER)
-        hk_box.pack(fill="x", padx=16, pady=(0, 12), ipady=4)
-
-        shortcuts = [
-            ("Ctrl + Alt + Space", "Explain / Teach"),
-            ("Ctrl + Alt + F",     "Fix & Bug Detect"),
-            ("Ctrl + Alt + T",     "Simplify (ELI5)"),
-            ("Ctrl + Alt + S",     "Listen (TTS Audio)")
-        ]
-        for key_str, desc in shortcuts:
-            r = tk.Frame(hk_box, bg=COLOR_BG_DARK)
-            r.pack(fill="x", padx=10, pady=1)
-            tk.Label(r, text=key_str, font=FONT_CODE, bg=COLOR_CONTAINER, fg=COLOR_BLUE, padx=6).pack(side="left")
-            tk.Label(r, text=f" →  {desc}", font=FONT_BODY, bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC).pack(side="left", padx=4)
-
-        # Action Buttons Row
-        btn_bar = tk.Frame(card, bg=COLOR_CONTAINER)
-        btn_bar.pack(fill="x", padx=16, pady=(0, 8))
-
-        tk.Button(
-            btn_bar, text="⚡  Trigger Copilot Now", font=FONT_BOLD,
-            bg=COLOR_BLUE, fg="#FFFFFF", activebackground="#2563EB", activeforeground="#FFFFFF",
-            bd=0, padx=12, pady=5, cursor="hand2", command=lambda: self.handle_hotkey("explain")
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btn_bar, text="⚙️  Settings", font=FONT_BODY,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_MAIN, activebackground=COLOR_BORDER, activeforeground="#FFF",
-            bd=1, relief="solid", highlightbackground=COLOR_BORDER, padx=10, pady=4, cursor="hand2",
-            command=self.open_setup
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btn_bar, text="_ Minimize", font=FONT_BODY,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, activebackground=COLOR_BORDER, activeforeground="#FFF",
-            bd=1, relief="solid", highlightbackground=COLOR_BORDER, padx=8, pady=4, cursor="hand2",
-            command=self.root.iconify
-        ).pack(side="left")
-
-        tk.Button(
-            btn_bar, text="✕ Quit", font=FONT_BODY,
-            bg=COLOR_RED_BG, fg=COLOR_RED, activebackground=COLOR_RED, activeforeground="#FFF",
-            bd=1, relief="solid", highlightbackground=COLOR_RED, padx=8, pady=4, cursor="hand2",
-            command=self.quit_app
-        ).pack(side="right")
 
     def open_setup(self):
         try:
@@ -234,22 +179,18 @@ class WatThisApp:
         except Exception as e:
             print(f"[ERROR] Could not open setup: {e}")
 
-    def on_companion_close(self):
-        # Minimize to taskbar on window X rather than terminating silently
-        self.root.iconify()
-
     def quit_app(self):
         self.is_alive = False
-        if self.active_abort_event:
+        if getattr(self, "active_abort_event", None):
             self.active_abort_event.set()
         tts_helper.stop_speech()
         self.stop_hotkeys.set()
-        if self.linger_timer_id:
+        if getattr(self, "linger_timer_id", None):
             try:
                 self.root.after_cancel(self.linger_timer_id)
             except Exception:
                 pass
-        if self.gui_queue_timer_id:
+        if getattr(self, "gui_queue_timer_id", None):
             try:
                 self.root.after_cancel(self.gui_queue_timer_id)
             except Exception:
@@ -258,6 +199,11 @@ class WatThisApp:
             keyboard.unhook_all_hotkeys()
         except Exception:
             pass
+        if getattr(self, "tray_icon", None):
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
         try:
             self.root.destroy()
         except Exception:
@@ -330,10 +276,10 @@ class WatThisApp:
         # Content Text Area
         self.content_lbl = tk.Label(
             self.container, text="", font=FONT_BODY,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, wraplength=440,
+            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, wraplength=460,
             justify="left", anchor="w"
         )
-        self.content_lbl.pack(fill="both", expand=True, padx=16, pady=(4, 10))
+        self.content_lbl.pack(fill="both", expand=True, padx=16, pady=(4, 12))
 
         # Follow-Up Expand Frame
         self.follow_up_frame = tk.Frame(self.container, bg=COLOR_BG_DARK, bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1)
@@ -365,7 +311,7 @@ class WatThisApp:
         )
         self.chat_send_btn.pack(side="right", padx=(0, 6), pady=6)
 
-        self.fixed_width = 480
+        self.fixed_width = 500
 
     def register_all_hotkeys(self):
         try:
@@ -497,7 +443,7 @@ class WatThisApp:
             if self.linger_timer_id:
                 self.root.after_cancel(self.linger_timer_id)
                 self.linger_timer_id = None
-            self.follow_mouse()
+            self.update_hud_geometry()
 
     def simulate_copy(self):
         try:
@@ -535,15 +481,14 @@ class WatThisApp:
 
         tts_helper.stop_speech()
         self.current_mode = mode
+        self.capture_mouse_position()
 
         # Reload active tier
         self.tier_key, self.tier_spec = config_manager.get_active_tier()
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl.configure(text=f" {tier_name} ({tier_ram}) ")
-        self.companion_prof_lbl.configure(
-            text=f"Active Profile: {self.tier_spec.get('name')} ({tier_ram})  |  Model: {self.tier_spec.get('model')}"
-        )
+        self.update_tray_tooltip()
 
         # Update TTS button appearance
         tts_ok = config_manager.is_tts_allowed(self.tier_key)
@@ -572,7 +517,7 @@ class WatThisApp:
                 fg=COLOR_RED
             )
             self.follow_up_frame.pack_forget()
-            self.follow_mouse()
+            self.update_hud_geometry()
             self.hud.deiconify()
             self.hud.attributes("-alpha", 0.98)
             self.hud_visible = True
@@ -630,7 +575,7 @@ class WatThisApp:
             self.expand_prompt_lbl.pack_forget()
             self.input_box_frame.pack(fill="x")
             self.chat_expanded = True
-            self.follow_mouse()
+            self.update_hud_geometry()
             self.hud.deiconify()
             self.hud.attributes("-alpha", 0.98)
             self.hud_visible = True
@@ -689,13 +634,12 @@ class WatThisApp:
         self.content_lbl.configure(text=self.status_states[0], fg=mode_color)
         self.container.configure(highlightbackground=mode_color)
 
-        self.follow_mouse()
+        self.update_hud_geometry()
         self.hud.deiconify()
         self.hud.attributes("-alpha", 0.98)
         self.hud_visible = True
 
         self.update_status_animation()
-        self.track_mouse_continuous()
 
         # Launch AI Pipeline
         threading.Thread(
@@ -711,46 +655,57 @@ class WatThisApp:
             if self.is_thinking and self.hud_visible:
                 self.content_lbl.configure(text=self.status_states[self.status_index % len(self.status_states)])
                 self.status_index += 1
+                self.update_hud_geometry()
                 self.root.after(300, self.update_status_animation)
         except Exception:
             pass
 
-    def follow_mouse(self):
+    def capture_mouse_position(self):
         try:
             class POINT(ctypes.Structure):
                 _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
             pt = POINT()
             ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            self.anchor_x = pt.x
+            self.anchor_y = pt.y
+        except Exception:
+            self.anchor_x = 400
+            self.anchor_y = 300
+
+    def update_hud_geometry(self):
+        try:
+            if not self.root.winfo_exists() or not self.hud.winfo_exists():
+                return
+
+            self.hud.update_idletasks()
+
+            win_w = getattr(self, "fixed_width", 500)
+            req_h = self.container.winfo_reqheight()
+            win_h = max(110, req_h)
 
             screen_w = self.root.winfo_screenwidth()
             screen_h = self.root.winfo_screenheight()
 
-            self.hud.update_idletasks()
-            win_w = max(self.fixed_width, self.hud.winfo_reqwidth())
-            win_h = self.hud.winfo_reqheight()
+            # Dynamic max height limit leaving breathing room
+            max_h = screen_h - 100
+            win_h = min(win_h, max_h)
 
-            target_x = pt.x + 25
-            target_y = pt.y + 25
+            target_x = getattr(self, "anchor_x", 400) + 20
+            target_y = getattr(self, "anchor_y", 300) + 20
 
-            if target_x + win_w > screen_w - 10:
-                target_x = pt.x - win_w - 25
-            if target_y + win_h > screen_h - 10:
-                target_y = pt.y - win_h - 25
+            # If expanding past right screen border, shift left
+            if target_x + win_w > screen_w - 15:
+                target_x = getattr(self, "anchor_x", 400) - win_w - 20
 
-            target_x = max(10, min(target_x, screen_w - win_w - 10))
-            target_y = max(10, min(target_y, screen_h - win_h - 10))
+            # If expanding past bottom screen border (taskbar area), flip upwards above cursor
+            if target_y + win_h > screen_h - 45:
+                target_y = getattr(self, "anchor_y", 300) - win_h - 20
+
+            # Hard clamp inside monitor bounds
+            target_x = max(15, min(target_x, screen_w - win_w - 15))
+            target_y = max(15, min(target_y, screen_h - win_h - 15))
 
             self.hud.geometry(f"{win_w}x{win_h}+{target_x}+{target_y}")
-        except Exception:
-            pass
-
-    def track_mouse_continuous(self):
-        try:
-            if not self.root.winfo_exists():
-                return
-            if self.hud_visible and self.is_thinking:
-                self.follow_mouse()
-                self.root.after(16, self.track_mouse_continuous)
         except Exception:
             pass
 
@@ -766,7 +721,7 @@ class WatThisApp:
 
             self.accumulated_text += token
             self.content_lbl.configure(text=self.accumulated_text)
-            self.hud.update_idletasks()
+            self.update_hud_geometry()
         except Exception:
             pass
 
@@ -775,6 +730,7 @@ class WatThisApp:
             if not self.root.winfo_exists():
                 return
             self.is_streaming = False
+            self.update_hud_geometry()
             elapsed = time.time() - self.start_time if self.start_time else None
             target_model = self.tier_spec.get("model", "local-ai")
 
@@ -888,13 +844,14 @@ class WatThisApp:
         self.container.configure(highlightbackground=COLOR_BORDER)
         self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
         self.accumulated_text = ""
+        self.update_hud_geometry()
 
     def on_system_error(self, message):
         self.is_thinking = False
         self.is_streaming = False
         self.container.configure(highlightbackground=COLOR_RED)
         self.content_lbl.configure(text=message, fg=COLOR_RED)
-        self.hud.update_idletasks()
+        self.update_hud_geometry()
         self.linger_timer_id = self.root.after(6000, self.hide_hud)
 
     def hide_hud(self):
@@ -987,12 +944,7 @@ if __name__ == "__main__":
         ERROR_ALREADY_EXISTS = 183
         mutex_handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
         if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-            print("[INFO] wat-this is already running in background. Restoring existing window.")
-            user32 = ctypes.windll.user32
-            hwnd = user32.FindWindowW(None, "wat-this • Ambient Copilot")
-            if hwnd:
-                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                user32.SetForegroundWindow(hwnd)
+            print("[INFO] wat-this is already running in the Windows Status Bar (System Tray).")
             sys.exit(0)
     except Exception:
         pass

@@ -1,5 +1,15 @@
 [
   {
+    "id": 1789113531593,
+    "timestamp": "2026-09-11 15:58:51",
+    "mode": "explain",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 17.5,
+    "snippet": "Asynchronous non-blocking input-output primitives multiplex event queues across concurrent POSIX epoll abstractions.",
+    "response": "Let me break that down for you in simple terms. This is a way of describing how computers handle input and output tasks, like when you're typing on your keyboard or clicking the mouse. Think of it like a restaurant. The computer is like a busy restaurant, and it needs to handle many orders (input and output tasks) at the same time. This description is saying that the computer uses a special way to manage these orders, so that it can handle many tasks simultaneously, without getting stuck waiting for one task to finish (like waiting for a table to be cleaned)."
+  },
+  {
     "id": 1789113130651,
     "timestamp": "2026-09-11 15:52:10",
     "mode": "simplify",
