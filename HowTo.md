@@ -26,29 +26,34 @@ To start using `wat-this` or customize configurations:
 ## 3. The Setup Wizard Tabs
 
 ### Tab 1: Diagnostics
-- Probes `http://localhost:11434/api/version` to confirm Ollama is active.
-- Reads host physical and available RAM to suggest an optimal model tier profile (`< 4 GB` Lite, `6 – 10 GB` Normal, `12 – 16 GB` Extreme).
+- **Profile Recommendation Banner**: Detects system physical & available RAM and offers a 1-click **"Apply Recommended Profile"** button.
+- **System Telemetry**: Real-time RAM meter and Ollama endpoint connection status.
+- **Interactive Test Suite**:
+  - `⚡ Test Ollama Query`: Sends a live test prompt to verify inference and latency.
+  - `🔊 Test Offline TTS Audio`: Plays a sample test phrase via native Windows SAPI.
+  - `⌨ Test Hotkey`: Verifies hotkey registration status.
 - Offers a one-click button to spawn the Ollama server daemon if offline.
 
-### Tab 2: Models & Install
-- **Lite Tier (`< 4 GB RAM`)**: `smollm2:1.7b` (Hugging Face).
-  - *Unlocked Modes*: **Explain**, **Translate**, **Simplify**, **Fix**, **TL;DR**, **Step-by-Step**.
+### Tab 2: Model Profiles & Install
+- **Lite Profile (`< 4 GB RAM`)**: `smollm2:1.7b` (Hugging Face).
+  - *Unlocked Modes*: **Explain**, **Fix**, **Simplify**, **Translate**, **Regex**, **Polish**.
   - *Memory Target*: Sub-4GB RAM budget with aggressive **1m memory release**.
-  - *Visual Aesthetic*: Compact solid obsidian matte (`#0D1117`), 0.98 opacity, zero blur overhead.
-- **Normal Tier (`6 – 10 GB RAM`)**: `llama3.1:8b` (Meta, fallback to `llama3.2:3b`).
-  - *Unlocked Modes*: All Lite modes + **Web Fact-Check & Verify**, **Terminal Command Explainer**.
+  - *Visual Aesthetic*: Modern 600px rounded squircle cards, 0.98 opacity, zero blur overhead.
+- **Normal Profile (`6 – 10 GB RAM`)**: `llama3.1:8b` (Meta, fallback to `llama3.2:3b`).
+  - *Unlocked Modes*: Options 1–6, plus Docstrings, Audit, and Unit Tests.
   - *Memory Target*: 6 – 10 GB RAM with **5m cache**.
-  - *Visual Aesthetic*: Fluid 500px width, hardware Acrylic frosted glass blur, 0.92 opacity.
-- **Extreme Tier (`12 – 16 GB RAM`)**: `qwen2.5:14b` (Alibaba, fallback to `llama3.1:8b`).
-  - *Unlocked Modes*: All modes + **Deep Reason & Chain-of-Thought**.
-  - *Memory Target*: 12 – 16 GB RAM with **15m warm cache** and unlimited follow-up chat.
-  - *Visual Aesthetic*: Luxury 560px width, deep purple frosted glass acrylic, 0.92 opacity.
+  - *Visual Aesthetic*: Modern 640px, hardware Acrylic frosted blur, 0.94 opacity.
+- **Extreme Profile (`12 – 16 GB RAM`)**: `qwen2.5:14b` (Alibaba, fallback to `llama3.1:8b`).
+  - *Unlocked Modes*: All 9 modes with unlimited follow-up chat.
+  - *Memory Target*: 12 – 16 GB RAM with **15m warm cache**.
+  - *Visual Aesthetic*: Modern 680px, violet frosted glass acrylic, 0.94 opacity.
 - Click **"Download & Install Selected Model"** to download with live progress. Once downloaded, click **"Set as Active Profile"**.
 
 ### Tab 3: Knowledge Notebook & Exports
 - Automatically logs all explained snippets, active model, latency metrics, and responses.
-- Real-time search filter by keyword or model name.
-- **"Export to Markdown"**: Generates a formatted `wat_this_notebook.md` notebook ready for Obsidian, Notion, or personal notes.
+- **Category Filter Chips**: Instant 1-click filtering by category (`All Logs`, `⚡ Explain`, `🔧 Fix`, `💡 Simplify`, `🌐 Translate`, `🔍 Regex`, `✍️ Polish`, `🛡️ Audit`).
+- Search filter by keyword or model name.
+- **"Export Markdown"**: Generates a formatted `wat_this_notebook.md` notebook ready for Obsidian, Notion, or personal notes.
 - **"Clear All"**: Wipes history records with confirmation.
 
 ### Tab 4: Preferences & Specialized Modes

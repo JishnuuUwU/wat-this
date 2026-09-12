@@ -53,9 +53,9 @@ All functionality is accessible through the single universal shortcut **`Ctrl + 
 
 | Tier | Target RAM | Recommended Model | Unlocked Options | Interactive Chat | Offline TTS | Visual Aesthetic & Optimization | Keep-Alive |
 |---|---|---|---|---|---|---|---|
-| **Lite** | `< 4 GB` | `smollm2:1.7b` | Options 1–6 | Locked | Locked | Compact 460px solid matte (`#0D1117`), 0.98 opacity, zero blur overhead | `1m` unload |
-| **Normal** | `6 – 10 GB` | `llama3.1:8b` *(or 3.2:3b)* | Options 1–6, 8, 9 | 2-Turn Follow-up | Enabled | Fluid 500px, hardware-accelerated Acrylic frosted glass blur, 0.92 opacity | `5m` cache |
-| **Extreme** | `12 – 16 GB` | `qwen2.5:14b` *(or 3.1:8b)* | All 9 Options | Unlimited Multi-turn | Enabled | Luxury 560px, frosted glass with purple ambient glow, 0.92 opacity | `15m` cache |
+| **Lite** | `< 4 GB` | `smollm2:1.7b` | Options 1–6 | Locked | Locked | Modern 600px rounded dark squircle card, 0.98 opacity, zero blur overhead | `1m` unload |
+| **Normal** | `6 – 10 GB` | `llama3.1:8b` *(or 3.2:3b)* | Options 1–6, 8, 9 | 2-Turn Follow-up | Enabled | Modern 640px rounded card, hardware-accelerated Acrylic frosted blur, 0.94 opacity | `5m` cache |
+| **Extreme** | `12 – 16 GB` | `qwen2.5:14b` *(or 3.1:8b)* | All 9 Options | Unlimited Multi-turn | Enabled | Modern 680px rounded card, frosted glass with violet ambient aura, 0.94 opacity | `15m` cache |
 
 ---
 

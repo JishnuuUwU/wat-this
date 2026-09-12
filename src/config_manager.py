@@ -36,7 +36,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "e",
             "icon": "⚡",
             "required_tier": "lite",
-            "prompt_suffix": "Explain what this is in plain English with a helpful analogy if it's code. Keep it clear, friendly, and accessible."
+            "system_prompt": "You are a clear, friendly educator explaining things to a curious non-technical person. Use one concrete real-world analogy. Never use jargon. Be warm and direct.",
+            "prompt_suffix": "Explain what this is in plain English using a helpful real-world analogy. 2–3 sentences max. No bullet lists, no headers, no filler phrases like 'Great question!'.",
+            "max_tokens": 320,
+            "temperature": 0.2
         },
         "fix": {
             "name": "Fix Code",
@@ -44,7 +47,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "f",
             "icon": "🔧",
             "required_tier": "lite",
-            "prompt_suffix": "Carefully analyze the target code. Identify bugs, syntax errors, or performance issues. Explain the problem concisely and provide the corrected code snippet."
+            "system_prompt": "You are a senior software engineer performing code repair. Your ONLY job is to output: 1) a single sentence naming the bug, then 2) the complete corrected code block. No explanations beyond the one-line diagnosis. No greetings. Output the fixed code immediately.",
+            "prompt_suffix": "Find and fix ALL bugs, syntax errors, and logic flaws in this code. Output format: one sentence starting with 'Bug:' naming what was wrong, then the complete corrected code in a fenced code block. Nothing else.",
+            "max_tokens": 800,
+            "temperature": 0.05
         },
         "simplify": {
             "name": "Simplify (ELI5)",
@@ -52,7 +58,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "s",
             "icon": "💡",
             "required_tier": "lite",
-            "prompt_suffix": "Rewrite and explain this text or concept for an absolute beginner as if explaining to a 10-year-old. Remove all technical jargon."
+            "system_prompt": "You are a rewriter. Your ONLY task is to rewrite the given text in simpler language a 10-year-old can understand. Output ONLY the rewritten version — no meta commentary, no 'Here is the simplified version:', no explanations of what you did.",
+            "prompt_suffix": "Rewrite this text in simple language a 10-year-old can understand. Use short sentences. Replace every technical term with an everyday word. Output ONLY the rewritten text.",
+            "max_tokens": 400,
+            "temperature": 0.25
         },
         "translate": {
             "name": "Quick Translate",
@@ -60,7 +69,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "t",
             "icon": "🌐",
             "required_tier": "lite",
-            "prompt_suffix": "Translate the following text into clear, natural plain English. Provide only the translated English text and a brief 1-sentence note if cultural idiom or slang is present."
+            "system_prompt": "You are a professional translator. First identify the source language. If the text is already in plain English, say so in one sentence and stop. Otherwise translate accurately into natural English, preserving meaning and tone.",
+            "prompt_suffix": "Step 1: Identify the source language (one word). Step 2: If it is English, output 'Already in English.' and stop. Step 3: Otherwise output the natural English translation followed by a one-sentence note if any cultural idiom or slang was present.",
+            "max_tokens": 500,
+            "temperature": 0.1
         },
         "regex": {
             "name": "Regex & Shell",
@@ -68,7 +80,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "r",
             "icon": "🔍",
             "required_tier": "lite",
-            "prompt_suffix": "Deconstruct and explain this regular expression pattern or terminal shell command step-by-step in plain English so any beginner can understand exactly what each component does."
+            "system_prompt": "You are a regex and shell command expert. If the input is not a regex or shell command, say so in one sentence and offer to help instead. Otherwise break it down component by component using a numbered list.",
+            "prompt_suffix": "Identify whether this is a regular expression, a shell/terminal command, or neither. If neither, say what it is and stop. If it is a regex or command: list each component on its own numbered line, explain what it matches/does in plain English, and give one practical example of input it would match or a use-case.",
+            "max_tokens": 500,
+            "temperature": 0.1
         },
         "polish": {
             "name": "Polish Prose",
@@ -76,7 +91,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "p",
             "icon": "✍️",
             "required_tier": "normal",
-            "prompt_suffix": "Rewrite this message or text to fix all grammar and punctuation errors while polishing for a crisp, confident, and professional tone."
+            "system_prompt": "You are a professional copy editor. Your ONLY output is the corrected and polished version of the text provided. Do NOT add any preamble, commentary, explanation, or headers. Output only the polished text itself.",
+            "prompt_suffix": "Rewrite this text with correct grammar, punctuation, and a crisp professional tone. Output ONLY the rewritten text — no 'Here is the polished version:', no commentary before or after.",
+            "max_tokens": 600,
+            "temperature": 0.3
         },
         "docstring": {
             "name": "Docstrings & Types",
@@ -84,7 +102,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "d",
             "icon": "📝",
             "required_tier": "extreme",
-            "prompt_suffix": "Generate complete, clean, professional documentation/docstrings and type hints for this code. Format it according to the language's best conventions."
+            "system_prompt": "You are a senior engineer writing documentation. Detect the programming language. Output only the original code with docstrings and type annotations added in the correct convention for that language (Python: Google-style docstring + type hints; JS/TS: JSDoc; Java: Javadoc). No explanation, no commentary.",
+            "prompt_suffix": "Add complete professional docstrings and type annotations to this code. Follow the official convention for the detected language. Output the complete annotated code in a fenced code block. Nothing else.",
+            "max_tokens": 1000,
+            "temperature": 0.05
         },
         "audit": {
             "name": "Security Audit",
@@ -92,7 +113,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "a",
             "icon": "🛡️",
             "required_tier": "extreme",
-            "prompt_suffix": "Perform a deep technical and security audit of this code. Check for OWASP vulnerabilities, race conditions, memory leaks, algorithmic complexity Big-O, and edge-case exceptions in clean bullet points."
+            "system_prompt": "You are an OWASP-certified application security engineer. Perform a rigorous audit. Output a structured report with clearly labelled sections. Be specific and technical — name exact line numbers or patterns where possible.",
+            "prompt_suffix": "Audit this code and output a structured report with these exact sections:\n**Security Vulnerabilities** (OWASP category, severity: CRITICAL/HIGH/MEDIUM/LOW, description)\n**Performance & Complexity** (Big-O, bottlenecks)\n**Edge Cases & Exceptions** (unhandled inputs, race conditions)\n**Recommended Fixes** (concrete, actionable)\nBe specific. Name exact patterns or line locations.",
+            "max_tokens": 1400,
+            "temperature": 0.05
         },
         "unittest": {
             "name": "Unit Test Generator",
@@ -100,7 +124,10 @@ DEFAULT_CONFIG = {
             "letter_shortcut": "u",
             "icon": "🧪",
             "required_tier": "extreme",
-            "prompt_suffix": "Generate comprehensive, robust, production-grade unit tests for this code covering happy paths, edge cases, exceptions, and mocks."
+            "system_prompt": "You are a test engineer. Detect the programming language and testing framework (pytest for Python, Jest for JS, JUnit for Java, etc.). Output ONLY runnable test code — no prose, no explanation, just the complete test file.",
+            "prompt_suffix": "Generate a complete, runnable unit test file for this code. Cover: happy path, edge cases (empty input, None/null, boundary values), expected exceptions, and one mock if external I/O is involved. Output ONLY the test code in a fenced code block — no explanation before or after.",
+            "max_tokens": 1600,
+            "temperature": 0.05
         }
     },
     "tiers": {

@@ -32,6 +32,16 @@ except Exception:
     except Exception:
         pass
 
+def get_dpi_scale():
+    """Returns the current Windows monitor DPI scaling factor (e.g. 1.0 for 100%, 1.5 for 150%, 2.0 for 200%)."""
+    try:
+        dpi = ctypes.windll.user32.GetDpiForSystem()
+        if dpi and dpi > 0:
+            return max(1.0, dpi / 96.0)
+    except Exception:
+        pass
+    return 1.0
+
 # Ensure Windows console output handles Unicode safely without crash
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
@@ -39,6 +49,11 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+# Ensure src folder is always in sys.path
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 # Set explicit Windows AppUserModelID
 try:
@@ -53,36 +68,33 @@ import tts_helper
 import screen_context
 from annotation_overlay import AnnotationOverlay
 
-# ---------------------------------------------------------------------------
-# DESIGN SYSTEM TOKENS (Obsidian Frosted Glass Theme)
-# ---------------------------------------------------------------------------
-COLOR_BG_DARK      = "#0D1117"  # Canvas
-COLOR_CONTAINER    = "#141A23"  # Translucent frosted surface
-COLOR_SURFACE_ELEV = "#1C2330"  # Slightly elevated sub-card
-COLOR_BORDER       = "#2A323D"  # Subtle structural border
-COLOR_TEXT_MAIN    = "#F0F6FC"  # High-contrast text
-COLOR_TEXT_SEC     = "#9BA3AF"  # Neutral text
-COLOR_TEXT_DIM     = "#6B7280"  # Muted captions
-COLOR_BLUE         = "#3B82F6"  # Brand sapphire primary
-COLOR_BLUE_BG      = "#0F264A"
-COLOR_GREEN        = "#10B981"  # Emerald green
-COLOR_GREEN_BG     = "#0E2C1E"
-COLOR_AMBER        = "#F59E0B"  # Warm amber
-COLOR_RED          = "#EF4444"
-COLOR_RED_BG       = "#2B1417"
-COLOR_PURPLE       = "#8B5CF6"  # Violet
+import one_ui
 
-MODE_COLORS = {
-    "explain": COLOR_BLUE,
-    "simplify": COLOR_AMBER,
-    "translate": "#06B6D4",   # Cyan
-    "regex": "#EC4899",       # Pink
-    "fix": COLOR_GREEN,
-    "polish": "#14B8A6",      # Teal
-    "docstring": COLOR_PURPLE,
-    "audit": "#F43F5E",       # Rose / Crimson
-    "unittest": "#8B5CF6"     # Violet
-}
+# ---------------------------------------------------------------------------
+# DESIGN SYSTEM TOKENS (Modern Rounded Dark Theme)
+# ---------------------------------------------------------------------------
+COLOR_BG_DARK      = one_ui.COLOR_ONEUI_BG        # Canvas background (#121316)
+COLOR_CONTAINER    = one_ui.COLOR_ONEUI_CARD      # Squircle Card (#1F2228)
+COLOR_SURFACE_ELEV = one_ui.COLOR_ONEUI_CARD_ELEV # Elevated / Hover card (#282C35)
+COLOR_BORDER       = one_ui.COLOR_ONEUI_BORDER    # Soft structural border (#2F3542)
+COLOR_TEXT_MAIN    = one_ui.COLOR_ONEUI_TEXT      # Crisp white (#FFFFFF)
+COLOR_TEXT_SEC     = one_ui.COLOR_ONEUI_TEXT_SEC  # Neutral secondary (#A0A8B5)
+COLOR_TEXT_DIM     = one_ui.COLOR_ONEUI_TEXT_DIM  # Muted captions (#5A6170)
+COLOR_BLUE         = one_ui.COLOR_ONEUI_BLUE      # Vivid Blue (#2C75FF)
+COLOR_BLUE_BG      = one_ui.COLOR_ONEUI_BLUE_BG   # Blue pill tint (#1A2744)
+COLOR_GREEN        = one_ui.COLOR_ONEUI_GREEN     # Emerald (#22C55E)
+COLOR_GREEN_BG     = one_ui.COLOR_ONEUI_GREEN_BG  # Emerald pill tint (#132D1E)
+COLOR_AMBER        = one_ui.COLOR_ONEUI_AMBER     # Amber (#FF9F0A)
+COLOR_AMBER_BG     = one_ui.COLOR_ONEUI_AMBER_BG  # Amber pill tint (#332311)
+COLOR_RED          = one_ui.COLOR_ONEUI_RED       # Coral red (#FA5252)
+COLOR_RED_BG       = one_ui.COLOR_ONEUI_RED_BG    # Red pill tint (#331618)
+COLOR_RED_BORDER   = one_ui.COLOR_ONEUI_RED_BORDER
+COLOR_AMBER_BORDER = one_ui.COLOR_ONEUI_AMBER_BORDER
+COLOR_PURPLE       = one_ui.COLOR_ONEUI_PURPLE    # Violet (#8C52FF)
+COLOR_PURPLE_BG    = one_ui.COLOR_ONEUI_PURPLE_BG # Violet pill tint (#251740)
+
+MODE_COLORS = one_ui.ONEUI_MODE_COLORS
+MODE_BG_COLORS = one_ui.ONEUI_MODE_BG_COLORS
 
 MODE_ICONS = {
     "explain": "⚡",
@@ -154,12 +166,13 @@ ACTION_SUMMARIES = {
 }
 
 FONT_FAMILY  = "Segoe UI"
-FONT_HERO    = (FONT_FAMILY, 12, "bold")
-FONT_TITLE   = (FONT_FAMILY, 10, "bold")
-FONT_SECTION = (FONT_FAMILY, 10, "bold")
-FONT_BODY    = (FONT_FAMILY, 10)
-FONT_BOLD    = (FONT_FAMILY, 10, "bold")
-FONT_SMALL   = (FONT_FAMILY, 8)
+FONT_HERO    = (FONT_FAMILY, 13, "bold")
+FONT_TITLE   = (FONT_FAMILY, 11, "bold")
+FONT_SECTION = (FONT_FAMILY, 11, "bold")
+FONT_BODY       = (FONT_FAMILY, 10)
+FONT_BOLD       = (FONT_FAMILY, 10, "bold")
+FONT_BODY_BOLD  = (FONT_FAMILY, 10, "bold")
+FONT_SMALL   = (FONT_FAMILY, 9)
 FONT_MICRO   = (FONT_FAMILY, 8, "bold")
 FONT_SUB     = (FONT_FAMILY, 8)
 FONT_CODE    = ("Consolas", 9)
@@ -320,7 +333,7 @@ class WatThisApp:
         self.chat_turns = 0
         self.anchor_x = 400
         self.anchor_y = 300
-        self.fixed_width = 500
+        self.fixed_width = int(620 * get_dpi_scale())
         self.tray_icon = None
         self.hud_hwnd = None
         self.used_web_search = False
@@ -506,7 +519,7 @@ class WatThisApp:
 
         # Main HUD Glass Container
         self.container = tk.Frame(
-            self.hud, bg=COLOR_CONTAINER, bd=1, relief="solid",
+            self.hud, bg=COLOR_CONTAINER, bd=0, relief="flat",
             highlightbackground=COLOR_BORDER, highlightthickness=1
         )
         self.container.pack(fill="both", expand=True, padx=0, pady=0)
@@ -518,56 +531,44 @@ class WatThisApp:
         # SHARED HEADER (Always visible, supports dragging)
         # -----------------------------------------------------------------------
         self.header_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
-        self.header_frame.pack(fill="x", padx=16, pady=(10, 6))
+        self.header_frame.pack(fill="x", padx=20, pady=(14, 8))
 
         # Left Header: Brand mark + Tier pill
         left_hdr = tk.Frame(self.header_frame, bg=COLOR_CONTAINER)
         left_hdr.pack(side="left")
 
         self.title_lbl = tk.Label(
-            left_hdr, text="● WAT-THIS", font=FONT_MICRO,
-            bg=COLOR_CONTAINER, fg="#38BDF8"
+            left_hdr, text="●  wat-this", font=("Segoe UI", 9, "bold"),
+            bg=COLOR_CONTAINER, fg="#FFFFFF"
         )
-        self.title_lbl.pack(side="left", padx=(0, 6))
+        self.title_lbl.pack(side="left", padx=(0, 12))
 
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl = tk.Label(
             left_hdr, text=f" {tier_name} • {tier_ram} ", font=FONT_MICRO,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1, padx=9, pady=3
+            bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_SEC, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1, padx=8, pady=2
         )
-        self.tier_badge_lbl.pack(side="left", padx=3)
+        self.tier_badge_lbl.pack(side="left")
 
         # Right Header: Pin toggle button + Close button
         right_hdr = tk.Frame(self.header_frame, bg=COLOR_CONTAINER)
         right_hdr.pack(side="right")
 
-        self.pin_btn = tk.Label(
-            right_hdr, text="📌 Pin", font=FONT_MICRO,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, padx=10, pady=3,
-            bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2"
+        self.pin_btn = one_ui.OneUIPillButton(
+            right_hdr, text="Pin", icon="📌", variant="surface",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.toggle_pin
         )
-        self.pin_btn.pack(side="left", padx=(0, 6))
-        self.pin_btn.bind("<Button-1>", lambda e: self.toggle_pin())
-        self.pin_btn.bind("<Enter>", lambda e: self.pin_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN) if not self.is_pinned else None)
-        self.pin_btn.bind("<Leave>", lambda e: self.pin_btn.configure(
-            bg=COLOR_GREEN_BG if self.is_pinned else COLOR_BG_DARK,
-            fg=COLOR_GREEN if self.is_pinned else COLOR_TEXT_DIM,
-            highlightbackground=COLOR_GREEN if self.is_pinned else COLOR_BORDER
-        ))
+        self.pin_btn.pack(side="left", padx=(0, 8))
 
-        self.dismiss_btn = tk.Label(
-            right_hdr, text=" ✕ ", font=FONT_MICRO,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, padx=8, pady=3,
-            bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2"
+        self.dismiss_btn = one_ui.OneUIPillButton(
+            right_hdr, text="", icon="✕", variant="surface",
+            font=FONT_MICRO, padx=8, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.hide_hud
         )
         self.dismiss_btn.pack(side="right")
-        self.dismiss_btn.bind("<Button-1>", lambda e: self.hide_hud())
-        self.dismiss_btn.bind("<Enter>", lambda e: self.dismiss_btn.configure(bg="#2E1B20", fg=COLOR_RED, highlightbackground=COLOR_RED))
-        self.dismiss_btn.bind("<Leave>", lambda e: self.dismiss_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, highlightbackground=COLOR_BORDER))
 
         # Draggable header bindings
         self._drag_start_x = 0
@@ -584,77 +585,78 @@ class WatThisApp:
 
         # Snippet preview card
         self.picker_snippet_card = tk.Frame(
-            self.picker_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1
+            self.picker_frame, bg=one_ui.COLOR_SURFACE_SUB, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1
         )
-        self.picker_snippet_card.pack(fill="x", padx=14, pady=(2, 6))
+        self.picker_snippet_card.pack(fill="x", padx=20, pady=(4, 8))
 
         self.picker_snippet_lbl = tk.Label(
             self.picker_snippet_card, text="", font=FONT_SMALL,
-            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_SEC, justify="left", anchor="w"
+            bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_SEC, justify="left", anchor="w"
         )
-        self.picker_snippet_lbl.pack(fill="x", padx=10, pady=5)
+        self.picker_snippet_lbl.pack(fill="x", padx=14, pady=8)
 
         # Prompt entry (shown when no snippet is selected)
         self.picker_entry_frame = tk.Frame(self.picker_frame, bg=COLOR_CONTAINER)
         self.picker_entry = tk.Entry(
             self.picker_entry_frame, font=FONT_BODY,
-            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
-            bd=0, highlightbackground=COLOR_BORDER, highlightthickness=1, relief="flat"
+            bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
+            bd=0, highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1, relief="flat"
         )
-        self.picker_entry.pack(fill="x", padx=14, pady=(0, 6), ipady=4)
+        self.picker_entry.pack(fill="x", padx=20, pady=(0, 8), ipady=7)
         self.picker_entry.bind("<Return>", lambda e: self._on_picker_entry_submit())
         self.picker_entry.bind("<Escape>", lambda e: self.hide_hud())
 
         # Action rows container
         self.action_list_frame = tk.Frame(self.picker_frame, bg=COLOR_CONTAINER)
-        self.action_list_frame.pack(fill="both", expand=True, padx=0, pady=(0, 4))
+        self.action_list_frame.pack(fill="both", expand=True, padx=0, pady=(0, 6))
 
-        # Dedicated Function Summary & Capabilities Preview Card (Dynamic Hover / Arrow Focus)
+        # Dedicated Function Summary & Capabilities Preview Card
         self.action_preview_card = tk.Frame(
-            self.picker_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1
+            self.picker_frame, bg=one_ui.COLOR_SURFACE_SUB, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1
         )
-        self.action_preview_card.pack(fill="x", padx=14, pady=(2, 6))
+        self.action_preview_card.pack(fill="x", padx=20, pady=(4, 8))
+        self.action_preview_card.bind("<Configure>", self._on_action_preview_configure)
 
-        preview_hdr = tk.Frame(self.action_preview_card, bg=COLOR_SURFACE_ELEV)
-        preview_hdr.pack(fill="x", padx=10, pady=(5, 2))
+        preview_hdr = tk.Frame(self.action_preview_card, bg=one_ui.COLOR_SURFACE_SUB)
+        preview_hdr.pack(fill="x", padx=14, pady=(8, 2))
 
         self.preview_title_lbl = tk.Label(
-            preview_hdr, text="[1] ⚡ Explain & Teach", font=FONT_SECTION,
-            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN
+            preview_hdr, text="⚡ Explain & Teach", font=FONT_SECTION,
+            bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_MAIN
         )
         self.preview_title_lbl.pack(side="left")
 
         self.preview_tier_pill = tk.Label(
             preview_hdr, text=" LITE+ ", font=FONT_MICRO,
-            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=1, relief="solid",
-            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=4, pady=1
+            bg=one_ui.COLOR_ACCENT_BG, fg=one_ui.COLOR_ACCENT, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_ACCENT_BG, highlightthickness=1, padx=8, pady=3
         )
         self.preview_tier_pill.pack(side="right")
 
         self.preview_desc_lbl = tk.Label(
             self.action_preview_card,
             text="Deconstructs complex concepts and logic into plain English with intuitive everyday analogies.",
-            font=FONT_SMALL, bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_SEC,
-            wraplength=460, justify="left", anchor="w"
+            font=FONT_SMALL, bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_SEC,
+            justify="left", anchor="w"
         )
-        self.preview_desc_lbl.pack(fill="x", padx=10, pady=(0, 2))
+        self.preview_desc_lbl.pack(fill="x", padx=14, pady=(2, 4))
 
         self.preview_tags_lbl = tk.Label(
             self.action_preview_card,
             text="⚡ Fast • Everyday Analogy • Web Enrich",
-            font=FONT_MICRO, bg=COLOR_SURFACE_ELEV, fg=COLOR_BLUE,
+            font=FONT_MICRO, bg=one_ui.COLOR_SURFACE_SUB, fg=one_ui.COLOR_ACCENT,
             anchor="w"
         )
-        self.preview_tags_lbl.pack(fill="x", padx=10, pady=(0, 5))
+        self.preview_tags_lbl.pack(fill="x", padx=14, pady=(0, 8))
 
         # Bottom Hint Bar
         self.picker_hint_lbl = tk.Label(
-            self.picker_frame, text="⌨  Press 1–9, arrow keys, or click to run  •  Hover for info  •  Esc to close",
+            self.picker_frame, text="1–9 to run  •  ↑↓ to navigate  •  Hover for info  •  Esc to close",
             font=FONT_MICRO, bg=COLOR_CONTAINER, fg=COLOR_TEXT_DIM, pady=4
         )
-        self.picker_hint_lbl.pack(fill="x", padx=14, pady=(0, 4))
+        self.picker_hint_lbl.pack(fill="x", padx=20, pady=(0, 10))
 
         # -----------------------------------------------------------------------
         # VIEW 2: STREAMING RESULT VIEW
@@ -663,27 +665,23 @@ class WatThisApp:
 
         # Sub-header bar inside stream frame (Back button, Mode badge, Action buttons)
         self.stream_subhdr = tk.Frame(self.stream_frame, bg=COLOR_CONTAINER)
-        self.stream_subhdr.pack(fill="x", padx=16, pady=(0, 6))
+        self.stream_subhdr.pack(fill="x", padx=20, pady=(0, 10))
 
         # Left sub-header: Back button + Mode badge
         stream_left = tk.Frame(self.stream_subhdr, bg=COLOR_CONTAINER)
         stream_left.pack(side="left")
 
-        self.back_btn = tk.Label(
-            stream_left, text="← Options", font=FONT_MICRO,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=9, pady=3
+        self.back_btn = one_ui.OneUIPillButton(
+            stream_left, text="Back", icon="←", variant="surface",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.show_action_picker
         )
-        self.back_btn.pack(side="left", padx=(0, 6))
-        self.back_btn.bind("<Button-1>", lambda e: self.show_action_picker())
-        self.back_btn.bind("<Enter>", lambda e: self.back_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
-        self.back_btn.bind("<Leave>", lambda e: self.back_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC))
+        self.back_btn.pack(side="left", padx=(0, 8))
 
         self.stream_mode_badge = tk.Label(
             stream_left, text="⚡ EXPLAIN", font=FONT_MICRO,
-            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=1, relief="solid",
-            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=9, pady=3
+            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=0, relief="flat",
+            highlightbackground=COLOR_BLUE_BG, highlightthickness=1, padx=10, pady=3
         )
         self.stream_mode_badge.pack(side="left")
 
@@ -692,86 +690,68 @@ class WatThisApp:
         stream_right.pack(side="right")
 
         # Patch Button (Fix mode)
-        self.patch_btn = tk.Label(
-            stream_right, text="⚡ Patch", font=FONT_SMALL,
-            bg=COLOR_BG_DARK, fg=COLOR_AMBER, bd=1, relief="solid",
-            highlightbackground=COLOR_AMBER, highlightthickness=1,
-            cursor="hand2", padx=10, pady=3
+        self.patch_btn = one_ui.OneUIPillButton(
+            stream_right, text="Patch", icon="⚡", variant="amber",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.replace_selection_in_editor
         )
-        self.patch_btn.bind("<Button-1>", lambda e: self.replace_selection_in_editor())
-        self.patch_btn.bind("<Enter>", lambda e: self.patch_btn.configure(bg=COLOR_SURFACE_ELEV))
-        self.patch_btn.bind("<Leave>", lambda e: self.patch_btn.configure(bg=COLOR_BG_DARK))
 
         # Copy Button
-        self.copy_btn = tk.Label(
-            stream_right, text="📋 Copy", font=FONT_SMALL,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=10, pady=3
+        self.copy_btn = one_ui.OneUIPillButton(
+            stream_right, text="Copy", icon="📋", variant="surface",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.copy_to_clipboard
         )
-        self.copy_btn.pack(side="left", padx=(0, 6))
-        self.copy_btn.bind("<Button-1>", lambda e: self.copy_to_clipboard())
-        self.copy_btn.bind("<Enter>", lambda e: self.copy_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
-        self.copy_btn.bind("<Leave>", lambda e: self.copy_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC))
+        self.copy_btn.pack(side="left", padx=(0, 8))
 
         # Guide / On-Screen Annotations Button
-        self.guide_btn = tk.Label(
-            stream_right, text="📍 Guide", font=FONT_SMALL,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=10, pady=3
+        self.guide_btn = one_ui.OneUIPillButton(
+            stream_right, text="Guide", icon="📍", variant="surface",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.toggle_annotation_guide
         )
-        self.guide_btn.pack(side="left", padx=(0, 6))
-        self.guide_btn.bind("<Button-1>", lambda e: self.toggle_annotation_guide())
-        self.guide_btn.bind("<Enter>", lambda e: self.guide_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
-        self.guide_btn.bind("<Leave>", lambda e: self.guide_btn.configure(
-            bg=COLOR_BG_DARK,
-            fg=COLOR_GREEN if getattr(getattr(self, "annotation_overlay", None), "is_visible", False) else COLOR_TEXT_SEC
-        ))
+        self.guide_btn.pack(side="left", padx=(0, 8))
 
         # TTS Listen Button
-        self.tts_btn = tk.Label(
-            stream_right, text="🔊 Listen", font=FONT_SMALL,
-            bg=COLOR_BG_DARK,
-            fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
-            bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=10, pady=3
+        self.tts_btn = one_ui.OneUIPillButton(
+            stream_right, text="Listen", icon="🔊",
+            variant="surface" if config_manager.is_tts_allowed(self.tier_key) else "ghost",
+            font=FONT_MICRO, padx=10, pady=2, height=26, bg=COLOR_CONTAINER,
+            command=self.toggle_speech
         )
         self.tts_btn.pack(side="left")
-        self.tts_btn.bind("<Button-1>", lambda e: self.toggle_speech())
-        self.tts_btn.bind("<Enter>", lambda e: self.tts_btn.configure(bg=COLOR_SURFACE_ELEV) if config_manager.is_tts_allowed(self.tier_key) else None)
-        self.tts_btn.bind("<Leave>", lambda e: self.tts_btn.configure(bg=COLOR_BG_DARK) if config_manager.is_tts_allowed(self.tier_key) else None)
 
         # Activity & Progress Strip
         self.activity_canvas = tk.Canvas(
             self.stream_frame, height=2, bg=COLOR_CONTAINER, highlightthickness=0, bd=0
         )
 
-        # Elevated Obsidian Content Card
+        # Elevated Content Card
         self.content_card = tk.Frame(
-            self.stream_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1
+            self.stream_frame, bg=COLOR_SURFACE_ELEV, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1
         )
-        self.content_card.pack(fill="both", expand=True, padx=14, pady=(2, 8))
+        self.content_card.pack(fill="both", expand=True, padx=20, pady=(2, 10))
         self.content_card.bind("<Motion>", self.on_hud_mouse_activity)
+        self.content_card.bind("<Configure>", self._on_content_card_configure)
 
-        # Status Pill Frame
+        # Status indicator: clean flat text, no heavy border box
         self.status_frame = tk.Frame(self.content_card, bg=COLOR_SURFACE_ELEV)
         self.status_pill = tk.Label(
-            self.status_frame, text="⚡ Initializing copilot...", font=FONT_SMALL,
-            bg=COLOR_BG_DARK, fg=COLOR_BLUE, padx=10, pady=3, bd=1, relief="solid",
-            highlightbackground=COLOR_BLUE, highlightthickness=1
+            self.status_frame, text="⧗ Thinking...", font=FONT_SMALL,
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_SEC, padx=18, pady=10, bd=0, relief="flat",
+            anchor="w"
         )
-        self.status_pill.pack(anchor="w", padx=14, pady=(8, 2))
+        self.status_pill.pack(fill="x", anchor="w")
+
 
         # Content Text Area
         self.content_lbl = tk.Label(
             self.content_card, text="", font=FONT_BODY,
-            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN, wraplength=470,
+            bg=COLOR_SURFACE_ELEV, fg="#EDF2F7",
             justify="left", anchor="w"
         )
-        self.content_lbl.pack(fill="both", expand=True, padx=14, pady=(6, 10))
+        self.content_lbl.pack(fill="both", expand=True, padx=18, pady=(8, 14))
         self.content_lbl.bind("<Motion>", self.on_hud_mouse_activity)
 
         # Metadata Footer Row
@@ -780,44 +760,44 @@ class WatThisApp:
             self.meta_frame, text="", font=FONT_MICRO,
             bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_DIM
         )
-        self.meta_stats_lbl.pack(side="left", padx=14, pady=(0, 6))
+        self.meta_stats_lbl.pack(side="left", padx=18, pady=(0, 10))
 
         # Follow-Up Expand Frame
         self.follow_up_frame = tk.Frame(
-            self.stream_frame, bg=COLOR_BG_DARK, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1
+            self.stream_frame, bg=one_ui.COLOR_SURFACE_SUB, bd=0, relief="flat",
+            highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1
         )
-        self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+        self.follow_up_frame.pack(fill="x", padx=20, pady=(0, 12))
 
         self.expand_prompt_lbl = tk.Label(
             self.follow_up_frame, text="💬  Press Tab or click to ask follow-up...",
-            font=FONT_SMALL, bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, cursor="hand2", pady=5
+            font=FONT_SMALL, bg=one_ui.COLOR_SURFACE_SUB, fg=COLOR_TEXT_SEC, cursor="hand2", pady=9
         )
         self.expand_prompt_lbl.pack(fill="x")
         self.expand_prompt_lbl.bind("<Button-1>", lambda e: self.toggle_follow_up(True))
 
         # Input Box for Chat Follow-up
-        self.input_box_frame = tk.Frame(self.follow_up_frame, bg=COLOR_BG_DARK)
+        self.input_box_frame = tk.Frame(self.follow_up_frame, bg=one_ui.COLOR_SURFACE_SUB)
         self.chat_entry = tk.Entry(
             self.input_box_frame, font=FONT_BODY,
             bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
-            bd=0, highlightbackground=COLOR_BORDER, highlightthickness=1, relief="flat"
+            bd=0, highlightbackground=one_ui.COLOR_BORDER, highlightthickness=1, relief="flat"
         )
-        self.chat_entry.pack(side="left", fill="x", expand=True, padx=(8, 6), pady=6, ipady=4)
+        self.chat_entry.pack(side="left", fill="x", expand=True, padx=(14, 8), pady=8, ipady=6)
         self.chat_entry.bind("<Return>", lambda e: self.submit_follow_up())
         self.chat_entry.bind("<Escape>", lambda e: self.hide_hud())
 
-        self.chat_send_btn = tk.Button(
-            self.input_box_frame, text="Ask", font=FONT_MICRO,
-            bg=COLOR_BLUE, fg="#FFFFFF", activebackground="#2563EB", activeforeground="#FFFFFF",
-            bd=0, padx=12, pady=4, cursor="hand2", command=self.submit_follow_up
+        self.chat_send_btn = one_ui.ModernButton(
+            self.input_box_frame, text="Ask", icon="💬", variant="primary",
+            font=FONT_MICRO, padx=14, pady=4, height=30, bg=one_ui.COLOR_SURFACE_SUB,
+            command=self.submit_follow_up
         )
-        self.chat_send_btn.pack(side="right", padx=(0, 6), pady=6)
+        self.chat_send_btn.pack(side="right", padx=(0, 8), pady=8)
 
         # Default state is picker view
         self.picker_frame.pack(fill="both", expand=True)
 
-        self.fixed_width = 500
+        self.fixed_width = int(620 * get_dpi_scale())
 
         # Initialize HWND and apply native acrylic blur and drop shadow
         self.hud.update_idletasks()
@@ -829,35 +809,54 @@ class WatThisApp:
 
         self.apply_tier_visual_mode()
 
+    def _on_content_card_configure(self, event):
+        """Dynamically adapts wraplength to actual card width to prevent right-edge text clipping."""
+        try:
+            avail_w = max(260, event.width - 40)
+            if hasattr(self, "content_lbl") and self.content_lbl.winfo_exists():
+                self.content_lbl.configure(wraplength=avail_w)
+        except Exception:
+            pass
+
+    def _on_action_preview_configure(self, event):
+        """Dynamically adapts preview text wraplength to preview card width."""
+        try:
+            avail_w = max(260, event.width - 28)
+            if hasattr(self, "preview_desc_lbl") and self.preview_desc_lbl.winfo_exists():
+                self.preview_desc_lbl.configure(wraplength=avail_w)
+        except Exception:
+            pass
+
     def apply_tier_visual_mode(self):
         """
         Dynamically configures minimalist theme and performance per active tier:
-        - Lite (< 4 GB): Solid matte #0D1117, zero blur overhead for 60fps, 460px width.
-        - Normal (6-10 GB): Hardware Acrylic blur, 0.92 alpha, 500px width.
-        - Extreme (12-16 GB): Frosted Glass acrylic, violet aura, 560px width.
+        - Lite (< 4 GB): Solid matte, zero blur overhead for 60fps, 620px width.
+        - Normal (6-10 GB): Hardware Acrylic blur, 0.92 alpha, 640px width.
+        - Extreme (12-16 GB): Frosted Glass acrylic, violet aura, 680px width.
         """
         blur_pref = self.config.get("blur_enabled", True)
 
+        dpi_scale = get_dpi_scale()
         if self.tier_key == "lite":
-            self.fixed_width = 460
+            self.fixed_width = int(580 * dpi_scale)
             self.active_hud_alpha = 0.98
             apply_window_blur_and_shadow(self.hud_hwnd, enable=False)
-            self.container.configure(bg="#0D1117", highlightbackground="#21262D")
-            self.tier_badge_lbl.configure(text=" LITE • < 4 GB ", fg="#8B949E", bg="#161B22")
+            self.container.configure(bg=COLOR_CONTAINER, highlightbackground=COLOR_BORDER)
+            self.tier_badge_lbl.configure(text=" LITE • < 4 GB ", fg="#FFFFFF", bg="#1C212D", highlightbackground="#2E3547")
         elif self.tier_key == "normal":
-            self.fixed_width = 500
-            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.92))
+            self.fixed_width = int(620 * dpi_scale)
+            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.94))
             if blur_pref:
-                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA121722)
-            self.container.configure(bg=COLOR_CONTAINER, highlightbackground="#30363D")
-            self.tier_badge_lbl.configure(text=" NORMAL • 6 – 10 GB ", fg=COLOR_BLUE, bg="#0F264A")
+                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA10131B)
+            self.container.configure(bg=COLOR_CONTAINER, highlightbackground=COLOR_BORDER)
+            self.tier_badge_lbl.configure(text=" NORMAL • 6 – 10 GB ", fg="#FFFFFF", bg="#1C212D", highlightbackground="#2E3547")
         else:  # extreme
-            self.fixed_width = 560
-            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.92))
+            self.fixed_width = int(660 * dpi_scale)
+            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.94))
             if blur_pref:
-                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA151128)
-            self.container.configure(bg=COLOR_CONTAINER, highlightbackground="#4C3A6E")
-            self.tier_badge_lbl.configure(text=" EXTREME • 12 – 16 GB ", fg=COLOR_PURPLE, bg="#251B33")
+                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA12151E)
+            self.container.configure(bg=COLOR_CONTAINER, highlightbackground=COLOR_BORDER)
+            self.tier_badge_lbl.configure(text=" EXTREME • 12 – 16 GB ", fg="#FFFFFF", bg="#1C212D", highlightbackground="#2E3547")
 
     def copy_to_clipboard(self):
         """Copies accumulated explanation to system clipboard with visual feedback."""
@@ -865,15 +864,17 @@ class WatThisApp:
             return
         try:
             pyperclip.copy(self.accumulated_text)
-            self.copy_btn.configure(text="✓ Copied!", fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
-            self.root.after(1600, self._restore_copy_btn)
         except Exception:
             pass
+        self.copy_btn.set_text("Copied!", "✓")
+        self.copy_btn.set_variant("success")
+        self.root.after(1600, self._restore_copy_btn)
 
     def _restore_copy_btn(self):
         try:
             if self.root.winfo_exists():
-                self.copy_btn.configure(text="📋 Copy", fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+                self.copy_btn.set_text("Copy", "📋")
+                self.copy_btn.set_variant("surface")
         except Exception:
             pass
 
@@ -884,12 +885,8 @@ class WatThisApp:
         """Toggles lock-on-screen pin mode so HUD stays indefinitely."""
         self.is_pinned = not self.is_pinned
         if self.is_pinned:
-            self.pin_btn.configure(
-                text="📌 Pinned",
-                bg=COLOR_GREEN_BG,
-                fg=COLOR_GREEN,
-                highlightbackground=COLOR_GREEN
-            )
+            self.pin_btn.set_text("Pinned", "📌")
+            self.pin_btn.set_variant("success")
             # Cancel any pending auto-dismiss timer
             if self.linger_timer_id:
                 try:
@@ -898,12 +895,8 @@ class WatThisApp:
                     pass
                 self.linger_timer_id = None
         else:
-            self.pin_btn.configure(
-                text="📌 Pin",
-                bg=COLOR_BG_DARK,
-                fg=COLOR_TEXT_DIM,
-                highlightbackground=COLOR_BORDER
-            )
+            self.pin_btn.set_text("Pin", "📌")
+            self.pin_btn.set_variant("surface")
             # Only start dismiss countdown if not generating and streamer is finished
             if self.hud_visible and not self.is_thinking and not self.is_streaming and self.hud_state == "streamer" and not self.chat_expanded:
                 self.schedule_auto_dismiss()
@@ -1003,30 +996,66 @@ class WatThisApp:
             pass
 
     def replace_selection_in_editor(self):
-        """One-click code patch: extracts clean code, copies to clipboard, and simulates paste back into editor."""
+        """One-click code patch: extracts the pure fixed code from fenced code block,
+        copies it to clipboard, then pastes it into the active editor window."""
         if not self.accumulated_text:
             return
-        clean_code = self.accumulated_text.strip()
-        if "```" in clean_code:
-            lines = clean_code.splitlines()
-            code_lines = []
+
+        raw = self.accumulated_text.strip()
+        clean_code = raw
+
+        # Extract content from fenced code block(s) — ```lang\n...\n```
+        if "```" in raw:
+            code_blocks = []
+            lines = raw.splitlines()
             inside_block = False
+            current_block = []
             for line in lines:
-                if line.strip().startswith("```"):
-                    inside_block = not inside_block
-                    continue
-                if inside_block:
-                    code_lines.append(line)
-            if code_lines:
-                clean_code = "\n".join(code_lines).strip()
+                stripped = line.strip()
+                if stripped.startswith("```"):
+                    if inside_block:
+                        # End of block
+                        if current_block:
+                            code_blocks.append("\n".join(current_block))
+                        current_block = []
+                        inside_block = False
+                    else:
+                        # Start of block — skip the ```lang line itself
+                        inside_block = True
+                elif inside_block:
+                    current_block.append(line)
+            if current_block:  # Unclosed block
+                code_blocks.append("\n".join(current_block))
+
+            if code_blocks:
+                # Use the largest code block (most complete fix)
+                clean_code = max(code_blocks, key=len).strip()
+
+        # If still no extraction happened and it starts with Bug:, remove diagnosis line
+        if clean_code.startswith("Bug:"):
+            lines = clean_code.splitlines()
+            # Strip leading Bug: lines (may be 1-2 sentences)
+            code_start = 0
+            for i, line in enumerate(lines):
+                if not line.startswith("Bug:") and line.strip():
+                    code_start = i
+                    break
+            clean_code = "\n".join(lines[code_start:]).strip()
+
+        if not clean_code:
+            # Nothing useful to paste — fall back to full text
+            clean_code = raw
 
         try:
             pyperclip.copy(clean_code)
-            self.patch_btn.configure(text="✓ Applied!", fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
-            self.root.after(1400, lambda: self.patch_btn.configure(text="⚡ Patch", fg=COLOR_AMBER, highlightbackground=COLOR_AMBER))
+            self.patch_btn.set_text("Applied!", "✓")
+            self.patch_btn.set_variant("success")
+            self.root.after(1800, lambda: (self.patch_btn.set_text("Patch", "⚡"), self.patch_btn.set_variant("amber")))
             self.simulate_paste()
         except Exception as e:
             print(f"[WARN] replace_selection_in_editor error: {e}")
+
+
 
     def simulate_paste(self):
         try:
@@ -1054,11 +1083,13 @@ class WatThisApp:
 
         if tts_helper.is_speaking():
             tts_helper.stop_speech()
-            self.tts_btn.configure(text="🔊 Listen", fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+            self.tts_btn.set_text("Listen", "🔊")
+            self.tts_btn.set_variant("surface")
         else:
             if self.accumulated_text:
                 tts_helper.speak_async(self.accumulated_text)
-                self.tts_btn.configure(text="⏹ Stop", fg=COLOR_AMBER, highlightbackground=COLOR_AMBER)
+                self.tts_btn.set_text("Stop", "⏹")
+                self.tts_btn.set_variant("amber")
 
     def speak_current_content(self):
         self.toggle_speech()
@@ -1175,10 +1206,12 @@ class WatThisApp:
             try:
                 speaking = tts_helper.is_speaking()
                 curr_txt = self.tts_btn.cget("text")
-                if speaking and curr_txt != "⏹ Stop":
-                    self.tts_btn.configure(text="⏹ Stop", fg=COLOR_AMBER, highlightbackground=COLOR_AMBER)
-                elif not speaking and curr_txt == "⏹ Stop":
-                    self.tts_btn.configure(text="🔊 Listen", fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+                if speaking and curr_txt != "Stop":
+                    self.tts_btn.set_text("Stop", "⏹")
+                    self.tts_btn.set_variant("amber")
+                elif not speaking and curr_txt == "Stop":
+                    self.tts_btn.set_text("Listen", "🔊")
+                    self.tts_btn.set_variant("surface")
             except Exception:
                 pass
 
@@ -1283,12 +1316,30 @@ class WatThisApp:
         except Exception as e:
             print(f"[WARN] simulate_copy error: {e}")
 
+    def _gather_screen_context_bg(self, exclude_hwnds):
+        """Background worker: captures foreground window info instantly, then runs OCR async."""
+        try:
+            # Phase 1: Fast window metadata (~0ms) — no OCR yet
+            ctx = screen_context.get_screen_context_summary(
+                exclude_hwnds=exclude_hwnds, do_ocr=False
+            )
+            self.screen_context = ctx
+
+            # Phase 2: OCR on window bounds (~0.8s) — runs after palette is already open
+            ctx_with_ocr = screen_context.get_screen_context_summary(
+                exclude_hwnds=exclude_hwnds, do_ocr=True
+            )
+            self.screen_context = ctx_with_ocr
+        except Exception as e:
+            print(f"[WARN] Screen context error: {e}")
+
     def handle_hotkey(self, mode=None):
         """
         Unified Hotkey Trigger (Ctrl + Alt + Space):
         1. Captures cursor location and active monitor work area.
         2. Fires ultra-fast 33ms copy pulse to grab highlighted text.
         3. Opens the minimalist Action Palette directly at the cursor.
+        Screen context OCR runs in background so the palette appears immediately.
         """
         now = time.time()
         if now - getattr(self, "last_trigger_time", 0) < 0.35:
@@ -1314,9 +1365,14 @@ class WatThisApp:
             highlightbackground=COLOR_BORDER
         )
 
-        # Capture foreground window & screen context before our HUD raises
+        # Capture foreground window info immediately (no OCR), run OCR in background
         exclude_hwnds = [self.hud_hwnd] if self.hud_hwnd else []
-        self.screen_context = screen_context.get_screen_context_summary(exclude_hwnds=exclude_hwnds)
+        self.screen_context = {}
+        threading.Thread(
+            target=self._gather_screen_context_bg,
+            args=(exclude_hwnds,),
+            daemon=True
+        ).start()
 
         prev_clipboard = ""
         try:
@@ -1327,24 +1383,18 @@ class WatThisApp:
         if self.config.get("auto_copy", True):
             self.simulate_copy()
 
+        # Give Ctrl+C a reliable 80ms window to propagate to the target app
+        time.sleep(0.08)
+
         text = ""
         try:
             current_clipboard = pyperclip.paste()
-            if current_clipboard and current_clipboard.strip():
+            if current_clipboard and current_clipboard != prev_clipboard and current_clipboard.strip():
                 text = str(current_clipboard).strip()
             elif prev_clipboard and prev_clipboard.strip():
                 text = str(prev_clipboard).strip()
         except Exception as e:
             print(f"[RECOVERY] Clipboard read error: {e}")
-
-        # If no text was highlighted, automatically leverage active window & visible screen text
-        if not text and self.screen_context.get("has_content"):
-            title = self.screen_context.get("title", "")
-            vis = self.screen_context.get("visible_text", "")
-            if vis:
-                text = f"[Screen: {title}]\n{vis}"
-            elif title:
-                text = f"[Active Window: {title}]"
 
         max_chars = self.config.get("max_clipboard_chars", 12000)
         if len(text) > max_chars:
@@ -1411,7 +1461,7 @@ class WatThisApp:
             self.linger_timer_id = None
 
     def render_action_buttons(self):
-        """Renders the aesthetic, tier-gated action list with tactile keyboard badges and subtitles."""
+        """Renders the aesthetic, spacious action list with squircle icon badges and tactile keycaps."""
         for widget in self.action_list_frame.winfo_children():
             widget.destroy()
 
@@ -1426,42 +1476,44 @@ class WatThisApp:
             icon = act["icon"]
             allowed = act["allowed"]
             mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
+            mode_bg = MODE_BG_COLORS.get(mode, COLOR_BLUE_BG)
             summary_info = ACTION_SUMMARIES.get(mode, {})
             tagline = summary_info.get("tagline", "Context-aware AI operation")
 
             is_sel = (idx == 0 and allowed)
 
-            # Sleek Command Palette Card Row
+            # Spacious Action Card (Comfortable 56px click target)
             row = tk.Frame(
                 self.action_list_frame,
-                bg=COLOR_SURFACE_ELEV if is_sel else (COLOR_CONTAINER if allowed else "#10141B"),
-                bd=1, relief="solid",
-                highlightbackground=mode_color if is_sel else (COLOR_BORDER if allowed else "#1C232E"),
+                bg=COLOR_SURFACE_ELEV if is_sel else (COLOR_CONTAINER if allowed else "#0F121A"),
+                bd=0, relief="flat",
+                highlightbackground=mode_color if is_sel else (one_ui.COLOR_BORDER if allowed else "#161B26"),
                 highlightthickness=1,
                 cursor="hand2" if allowed else "arrow"
             )
-            row.pack(fill="x", padx=14, pady=2, ipady=3)
+            row.pack(fill="x", padx=20, pady=3, ipady=6)
             row.bind("<Motion>", self.on_hud_mouse_activity)
 
-            # Physical Tactile Keycap Badge: [ 1 ], [ 2 ], etc.
-            badge_bg = "#1D2638" if is_sel else (COLOR_SURFACE_ELEV if allowed else "#141820")
-            badge_fg = mode_color if allowed else COLOR_TEXT_DIM
-            badge_lbl = tk.Label(
-                row, text=f" {shortcut} ", font=FONT_MICRO,
-                bg=badge_bg, fg=badge_fg, bd=1, relief="solid",
-                highlightbackground=mode_color if is_sel else ("#2E3B4E" if allowed else "#1F2530"),
-                highlightthickness=1, padx=6, pady=2
+            # Tactile ModernKeycap Pill Badge: [ 1 ], [ 2 ], etc.
+            badge_lbl = one_ui.ModernKeycap(
+                row, key=shortcut, font=FONT_MICRO, padx=7, pady=2,
+                bg="#1E2638" if is_sel else (one_ui.COLOR_SURFACE_SUB if allowed else "#0F121A"),
+                fg=mode_color if is_sel else ("#E2E8F0" if allowed else COLOR_TEXT_DIM),
+                border=mode_color if is_sel else (one_ui.COLOR_BORDER_LIGHT if allowed else one_ui.COLOR_BORDER),
+                parent_bg=row.cget("bg")
             )
-            badge_lbl.pack(side="left", padx=(8, 8), pady=2)
+            badge_lbl.pack(side="left", padx=(12, 10), pady=4)
 
-            # Rounded Icon Container with mode-tinted theme
-            icon_lbl = tk.Label(
-                row, text=f" {icon} ", font=FONT_BODY,
-                bg=row.cget("bg"), fg=mode_color if allowed else COLOR_TEXT_DIM
+            # Tinted Squircle Icon Badge
+            icon_badge = one_ui.OneUIIconBadge(
+                row, icon=icon, size=36, radius=10,
+                bg_color=mode_bg if allowed else "#141822",
+                icon_color=mode_color if allowed else COLOR_TEXT_DIM,
+                parent_bg=row.cget("bg")
             )
-            icon_lbl.pack(side="left", padx=(0, 4))
+            icon_badge.pack(side="left", padx=(0, 10))
 
-            # Action Text Block (Title + Tagline Subtitle)
+            # Action Text Block (Title + Subtitle)
             text_box = tk.Frame(row, bg=row.cget("bg"))
             text_box.pack(side="left", fill="both", expand=True)
 
@@ -1473,7 +1525,7 @@ class WatThisApp:
             name_lbl.pack(fill="x")
 
             sub_lbl = tk.Label(
-                text_box, text=tagline, font=FONT_SUB,
+                text_box, text=tagline, font=FONT_SMALL,
                 bg=row.cget("bg"), fg=COLOR_TEXT_SEC if allowed else COLOR_TEXT_DIM,
                 anchor="w"
             )
@@ -1484,23 +1536,24 @@ class WatThisApp:
                 req = act.get("required_tier", "normal").capitalize()
                 lock_lbl = tk.Label(
                     row, text=f"🔒 {req.upper()}", font=FONT_MICRO,
-                    bg="#241517", fg=COLOR_RED, padx=7, pady=2,
-                    bd=1, relief="solid", highlightbackground="#451A1F", highlightthickness=1
+                    bg=COLOR_RED_BG, fg=COLOR_RED, padx=8, pady=3,
+                    bd=0, relief="flat", highlightbackground=COLOR_RED_BORDER, highlightthickness=1
                 )
-                lock_lbl.pack(side="right", padx=(0, 8))
+                lock_lbl.pack(side="right", padx=(0, 12))
                 right_ind = lock_lbl
             else:
                 status_ind = tk.Label(
                     row, text="●" if is_sel else "›", font=FONT_MICRO,
                     bg=row.cget("bg"), fg=mode_color if is_sel else COLOR_TEXT_DIM
                 )
-                status_ind.pack(side="right", padx=(0, 10))
+                status_ind.pack(side="right", padx=(0, 14))
                 right_ind = status_ind
 
-            def _enter(r=row, b=badge_lbl, c=mode_color, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act):
+            def _enter(r=row, b=badge_lbl, ib=icon_badge, c=mode_color, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act):
                 return lambda e: (
                     r.configure(bg=COLOR_SURFACE_ELEV, highlightbackground=c),
-                    b.configure(bg="#1D2638", highlightbackground=c),
+                    b.configure(bg="#232E45", highlightbackground=c, fg="#FFFFFF"),
+                    ib.configure(bg=COLOR_SURFACE_ELEV),
                     tb.configure(bg=COLOR_SURFACE_ELEV),
                     nl.configure(bg=COLOR_SURFACE_ELEV),
                     sl.configure(bg=COLOR_SURFACE_ELEV),
@@ -1508,28 +1561,31 @@ class WatThisApp:
                     self.update_action_summary(i)
                 )
 
-            def _leave(r=row, b=badge_lbl, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act):
+            def _leave(r=row, b=badge_lbl, ib=icon_badge, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act, c=mode_color):
                 is_curr_sel = (i == getattr(self, "selected_action_idx", 0))
+                def_bg = COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#0F121A")
                 return lambda e: (
                     r.configure(
-                        bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B"),
-                        highlightbackground=COLOR_BLUE if is_curr_sel else (COLOR_BORDER if al else "#1C232E")
+                        bg=def_bg,
+                        highlightbackground=COLOR_BLUE if is_curr_sel else (one_ui.COLOR_BORDER if al else "#161B26")
                     ),
                     b.configure(
-                        bg="#1D2638" if is_curr_sel else (COLOR_SURFACE_ELEV if al else "#141820"),
-                        highlightbackground=COLOR_BLUE if is_curr_sel else ("#2E3B4E" if al else "#1F2530")
+                        bg="#1E2638" if is_curr_sel else (one_ui.COLOR_SURFACE_SUB if al else "#0F121A"),
+                        highlightbackground=COLOR_BLUE if is_curr_sel else (one_ui.COLOR_BORDER_LIGHT if al else one_ui.COLOR_BORDER),
+                        fg=c if is_curr_sel else ("#E2E8F0" if al else COLOR_TEXT_DIM)
                     ),
-                    tb.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
-                    nl.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
-                    sl.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
+                    ib.configure(bg=def_bg),
+                    tb.configure(bg=def_bg),
+                    nl.configure(bg=def_bg),
+                    sl.configure(bg=def_bg),
                     ri.configure(
-                        bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B"),
+                        bg=def_bg,
                         text="●" if is_curr_sel else "›",
                         fg=COLOR_BLUE if is_curr_sel else COLOR_TEXT_DIM
                     ) if (al and hasattr(ri, "configure") and ri.cget("text") != f"🔒 {a.get('required_tier', 'normal').upper()}") else None
                 )
 
-            interactive_widgets = [row, badge_lbl, icon_lbl, text_box, name_lbl, sub_lbl, right_ind]
+            interactive_widgets = [row, badge_lbl, icon_badge, text_box, name_lbl, sub_lbl, right_ind]
             for w in interactive_widgets:
                 if allowed:
                     w.bind("<Button-1>", lambda e, m=mode: self.select_action(m))
@@ -1575,7 +1631,7 @@ class WatThisApp:
         else:
             self.preview_tier_pill.configure(
                 text=f" 🔒 {req_tier} ONLY ",
-                fg=COLOR_AMBER, bg="#2B1D0E", highlightbackground=COLOR_AMBER
+                fg=COLOR_AMBER, bg=COLOR_AMBER_BG, highlightbackground=COLOR_AMBER_BORDER
             )
 
     def _on_hud_key(self, event):
@@ -1645,7 +1701,7 @@ class WatThisApp:
         # Unhighlight current
         curr_row, curr_badge, curr_act, curr_tb, curr_nl, curr_sl, curr_ri = self.action_rows[self.selected_action_idx]
         curr_row.configure(bg=COLOR_CONTAINER, highlightbackground=COLOR_BORDER)
-        curr_badge.configure(bg=COLOR_SURFACE_ELEV, highlightbackground="#2E3B4E" if curr_act.get("allowed") else "#1F2530")
+        curr_badge.configure(bg=one_ui.COLOR_SURFACE_SUB, highlightbackground=one_ui.COLOR_BORDER_LIGHT if curr_act.get("allowed") else one_ui.COLOR_BORDER, fg="#E2E8F0" if curr_act.get("allowed") else COLOR_TEXT_DIM)
         curr_tb.configure(bg=COLOR_CONTAINER)
         curr_nl.configure(bg=COLOR_CONTAINER)
         curr_sl.configure(bg=COLOR_CONTAINER)
@@ -1664,7 +1720,7 @@ class WatThisApp:
         new_row, new_badge, act, new_tb, new_nl, new_sl, new_ri = self.action_rows[self.selected_action_idx]
         mode_color = MODE_COLORS.get(act["mode"], COLOR_BLUE)
         new_row.configure(bg=COLOR_SURFACE_ELEV, highlightbackground=mode_color)
-        new_badge.configure(bg="#1D2638", highlightbackground=mode_color)
+        new_badge.configure(bg="#232E45", highlightbackground=mode_color, fg="#FFFFFF")
         new_tb.configure(bg=COLOR_SURFACE_ELEV)
         new_nl.configure(bg=COLOR_SURFACE_ELEV)
         new_sl.configure(bg=COLOR_SURFACE_ELEV)
@@ -1709,21 +1765,21 @@ class WatThisApp:
         mode_icon = MODE_ICONS.get(mode, "⚡")
 
         self.stream_mode_badge.configure(
-            text=f" {mode_icon} {mode_spec.get('name', mode).upper()} ",
+            text=f" {mode_icon} {mode.upper()} ",
             fg=mode_color,
-            bg=COLOR_BG_DARK,
-            highlightbackground=mode_color
+            bg=MODE_BG_COLORS.get(mode, COLOR_BLUE_BG),
+            highlightbackground=MODE_BG_COLORS.get(mode, COLOR_BLUE_BG)
         )
 
         # Patch button in Fix mode
         if mode == "fix":
-            self.patch_btn.pack(side="left", padx=(0, 6), before=self.copy_btn)
+            self.patch_btn.pack(side="left", padx=(0, 8), before=self.copy_btn)
         else:
             self.patch_btn.pack_forget()
 
         # Reset streaming state
         self.accumulated_text = ""
-        self.content_lbl.configure(text="", fg=COLOR_TEXT_MAIN)
+        self.content_lbl.configure(text="", fg="#EDF2F7")
         self.meta_frame.pack_forget()
         self.meta_stats_lbl.configure(text="")
 
@@ -1733,7 +1789,7 @@ class WatThisApp:
         self.chat_entry.delete(0, tk.END)
 
         if config_manager.is_interactive_chat_allowed(self.tier_key):
-            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+            self.follow_up_frame.pack(fill="x", padx=20, pady=(0, 12))
             max_turns = self.tier_spec.get("max_chat_turns", 3)
             self.expand_prompt_lbl.configure(
                 text=f"💬  Press Tab or click to ask follow-up ({max_turns} remaining)...",
@@ -1742,7 +1798,7 @@ class WatThisApp:
             )
             self.expand_prompt_lbl.pack(fill="x")
         else:
-            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
+            self.follow_up_frame.pack(fill="x", padx=20, pady=(0, 12))
             self.expand_prompt_lbl.configure(
                 text="🔒 Follow-up chat unlocked in Normal (6–10 GB) & Extreme (12–16 GB)",
                 fg=COLOR_TEXT_DIM,
@@ -1757,11 +1813,12 @@ class WatThisApp:
             f"✦ Formulating concise insights...",
             f"✦ Streaming response..."
         ]
-        self.status_pill.configure(text=self.status_states[0], fg=mode_color, highlightbackground=mode_color)
+        self.status_pill.configure(
+            text=self.status_states[0],
+            fg=mode_color,
+            bg=COLOR_SURFACE_ELEV
+        )
         self.status_frame.pack(fill="x")
-        self.container.configure(highlightbackground=mode_color)
-        if getattr(self, "content_card", None):
-            self.content_card.configure(highlightbackground=mode_color)
 
         self.update_hud_geometry()
         self.start_activity_animation(mode_color)
@@ -1774,19 +1831,6 @@ class WatThisApp:
             except Exception:
                 pass
             self.linger_timer_id = None
-
-        # Spotlight active target on screen with visual guide overlay
-        if getattr(self, "annotation_overlay", None):
-            action_title = mode_spec.get("name", mode).upper()
-            self.annotation_overlay.show_cursor_spotlight(
-                self.anchor_x, self.anchor_y,
-                title=f"{action_title}",
-                text="Inspecting active screen context and focal target",
-                step_num=1,
-                color=mode_color
-            )
-            if getattr(self, "guide_btn", None):
-                self.guide_btn.configure(fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
 
         if self.active_abort_event:
             self.active_abort_event.set()
@@ -1807,7 +1851,8 @@ class WatThisApp:
         if getattr(self, "annotation_overlay", None):
             if self.annotation_overlay.is_visible:
                 self.annotation_overlay.hide()
-                self.guide_btn.configure(fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+                if getattr(self, "guide_btn", None):
+                    self.guide_btn.set_variant("surface")
             else:
                 mode_color = MODE_COLORS.get(self.current_mode, COLOR_BLUE)
                 mode_spec = config_manager.get_mode_spec(self.current_mode)
@@ -1818,7 +1863,8 @@ class WatThisApp:
                     step_num=1,
                     color=mode_color
                 )
-                self.guide_btn.configure(fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
+                if getattr(self, "guide_btn", None):
+                    self.guide_btn.set_variant("success")
 
     def update_status_animation(self):
         try:
@@ -1975,7 +2021,7 @@ class WatThisApp:
             f"✦ Reasoning with {target_model}...",
             f"✦ Streaming response..."
         ]
-        self.status_pill.configure(text=self.status_states[0], fg=mode_color, highlightbackground=mode_color)
+        self.status_pill.configure(text=self.status_states[0], fg=mode_color, bg=COLOR_SURFACE_ELEV)
         self.status_frame.pack(fill="x")
         self.start_activity_animation(mode_color)
 
@@ -2212,11 +2258,8 @@ class WatThisApp:
         if getattr(self, "meta_frame", None):
             self.meta_frame.pack_forget()
         if getattr(self, "tts_btn", None):
-            self.tts_btn.configure(
-                text="🔊 Listen",
-                fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
-                highlightbackground=COLOR_BORDER
-            )
+            self.tts_btn.set_text("Listen", "🔊")
+            self.tts_btn.set_variant("surface" if config_manager.is_tts_allowed(self.tier_key) else "ghost")
 
     def hide_hud(self, instant=False):
         if self.linger_timer_id:
@@ -2227,12 +2270,8 @@ class WatThisApp:
             self.linger_timer_id = None
         self.is_pinned = False
         if getattr(self, "pin_btn", None):
-            self.pin_btn.configure(
-                text="📌 Pin",
-                bg=COLOR_BG_DARK,
-                fg=COLOR_TEXT_DIM,
-                highlightbackground=COLOR_BORDER
-            )
+            self.pin_btn.set_text("Pin", "📌")
+            self.pin_btn.set_variant("surface")
         tts_helper.stop_speech()
         self.hud_visible = False
         self.is_thinking = False
@@ -2242,7 +2281,7 @@ class WatThisApp:
         if getattr(self, "annotation_overlay", None):
             self.annotation_overlay.hide()
         if getattr(self, "guide_btn", None):
-            self.guide_btn.configure(fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+            self.guide_btn.set_variant("surface")
         if getattr(self, "active_abort_event", None):
             self.active_abort_event.set()
         if getattr(self, "patch_btn", None):
@@ -2264,14 +2303,27 @@ class WatThisApp:
         target_model = spec.get("model", "llama3.1:8b")
         allow_web = config_manager.is_web_search_allowed(self.tier_key)
         keep_alive = spec.get("keep_alive", "15m")
-        base_prompt = spec.get("system_prompt", "Explain what this is clearly.")
 
         mode_spec = config_manager.get_mode_spec(mode)
         mode_suffix = mode_spec.get("prompt_suffix", "")
-        system_prompt = (
-            f"{base_prompt} Specific goal: {mode_suffix} "
-            f"Provide an immediate, direct, and concise explanation in plain English without conversational greetings, pleasantries, or introductory filler."
-        )
+
+        # --- System Prompt: use mode's dedicated system_prompt if defined,
+        #     otherwise fall back to tier's generic base.
+        #     Always append a hard no-filler directive.
+        mode_system = mode_spec.get("system_prompt", "")
+        tier_system = spec.get("system_prompt", "Explain what this is clearly.")
+        if mode_system:
+            system_prompt = (
+                f"{mode_system}\n"
+                f"IMPORTANT: Do not add greetings, filler phrases, or meta commentary. "
+                f"Respond immediately and directly. Never say \'Certainly!\', \'Of course!\', "
+                f"\'Sure!\', or \'Great question!\' — just do the task."
+            )
+        else:
+            system_prompt = (
+                f"{tier_system} Specific goal: {mode_suffix} "
+                f"Provide an immediate, direct response without conversational greetings or pleasantries."
+            )
 
         ollama_url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
 
@@ -2293,46 +2345,91 @@ class WatThisApp:
             else:
                 target_model = installed[0]
 
-        code_indicators = ["try:", "def ", "import ", "response =", "return ", "class ", "const ", "function", "public static", "void"]
-        is_code = any(indicator in text for indicator in code_indicators) or (len(text) > 20 and "  " in text and ("=" in text or "(" in text or "{" in text))
+        # --- Code detection ---
+        code_indicators = [
+            "try:", "def ", "import ", "return ", "class ", "const ", "function",
+            "public static", "void ", "if (", "for (", "while (", "elif ", "except ",
+            "=>", "->", "#include", "SELECT ", "FROM ", "CREATE TABLE"
+        ]
+        is_code = (
+            any(ind in text for ind in code_indicators) or
+            (len(text) > 20 and text.count("\n") > 1 and ("=" in text or "(" in text))
+        )
 
+        # --- Web search: smarter per-mode triggering ---
         web_context = ""
         self.used_web_search = False
-
-        # Latency optimization: only trigger web search if query is a short concept (1-5 words) and strictly not code
         words = text.strip().split()
-        is_short_concept = (len(words) <= 5 and not ("\n" in text) and not any(ch in text for ch in ("{", "}", ";", "(", ")", "=")))
+        is_short_concept = (
+            1 <= len(words) <= 6
+            and "\n" not in text
+            and not any(ch in text for ch in ("{", "}", ";", "=>", "->"))
+        )
 
-        if mode == "explain" and allow_web and not is_code and is_short_concept and not abort_event.is_set():
-            results = search_helper.search_duckduckgo(text, max_results=2)
-            if results:
-                web_context = "\n".join(results)
-                self.used_web_search = True
+        if allow_web and not abort_event.is_set():
+            search_query = None
+
+            if mode == "explain" and not is_code and is_short_concept:
+                search_query = text.strip()
+
+            elif mode == "regex":
+                if any(ch in text for ch in ("\\", "^", "$", "[", "]", "*", "+", "?", "|")):
+                    search_query = f"regex pattern explanation: {text.strip()[:80]}"
+                elif text.strip().startswith(("ls", "grep", "awk", "sed", "curl", "git ", "npm ", "pip ", "docker ")):
+                    search_query = f"shell command: {text.strip()[:80]}"
+
+            elif mode == "fix" and is_code:
+                error_keywords = [
+                    "error:", "exception:", "traceback", "SyntaxError", "TypeError",
+                    "NameError", "AttributeError", "ValueError", "cannot", "undefined",
+                    "ImportError", "KeyError", "IndexError"
+                ]
+                if any(kw.lower() in text.lower() for kw in error_keywords):
+                    for line in text.splitlines():
+                        if any(kw.lower() in line.lower() for kw in error_keywords):
+                            search_query = line.strip()[:100]
+                            break
+
+            if search_query:
+                results = search_helper.search_duckduckgo(search_query, max_results=2)
+                if results:
+                    web_context = "\n".join(results)
+                    self.used_web_search = True
 
         if abort_event.is_set():
             return
 
-        prompt = f"Target text:\n{text}"
+        # --- Build the core prompt ---
+        prompt = f"Task: {mode_suffix}\n\nTarget text:\n{text}"
         if web_context:
-            prompt = f"Live Context:\n{web_context}\n\nTarget text:\n{text}"
+            prompt = f"Task: {mode_suffix}\n\nReference context (from web):\n{web_context}\n\nTarget text:\n{text}"
 
-        # Enrich with full screen context (active window title, app name, surrounding screen text)
+        # --- Enrich with screen context (background OCR populated in handle_hotkey) ---
         sc = getattr(self, "screen_context", {})
-        if sc and sc.get("has_content"):
+        if not sc or not sc.get("has_content"):
+            clean_title = sc.get("clean_title", "") if sc else ""
+            if not text and clean_title:
+                text = f"[Active Window: {clean_title}]"
+                self.current_snippet = text
+        if sc and (sc.get("visible_text") or sc.get("clean_title") or sc.get("title")):
             prompt = screen_context.format_prompt_with_screen_context(
                 highlighted_text=text,
                 screen_context=sc,
                 mode_prompt=prompt
             )
 
+        # --- Per-mode token budget and temperature (from mode spec, fallback to tier defaults) ---
         num_ctx = spec.get("num_ctx", 2048)
-        max_tokens = 320 if mode in ("explain", "simplify", "regex", "translate") else (600 if mode in ("fix", "polish") else 800)
+        max_tokens = mode_spec.get("max_tokens", spec.get("max_tokens", 512))
+        temperature = mode_spec.get("temperature", 0.15)
+
         options = {
             "num_predict": max_tokens,
             "num_ctx": num_ctx,
-            "temperature": 0.15,
-            "top_p": 0.85,
-            "top_k": 40
+            "temperature": temperature,
+            "top_p": 0.90,
+            "top_k": 40,
+            "repeat_penalty": 1.1
         }
 
         payload = {
@@ -2352,7 +2449,7 @@ class WatThisApp:
                 headers={"Content-Type": "application/json"}
             )
 
-            with urllib.request.urlopen(req, timeout=45) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 for line in response:
                     if abort_event.is_set() or not self.is_alive:
                         return

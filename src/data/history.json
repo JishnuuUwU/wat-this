@@ -1,5 +1,35 @@
 [
   {
+    "id": 1789190365449,
+    "timestamp": "2026-09-12 13:19:25",
+    "mode": "simplify",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 6.8,
+    "snippet": "Sample explanation text to copy",
+    "response": "Imagine you have two different computers, one with Microsoft Edge and one with Chrome. When you open Microsoft Edge, it shows you a list of things you can do, like asking about classes or looking at your personal stuff. The \"msedge.exe\" part is like the name of the computer program that's running on the Microsoft Edge computer."
+  },
+  {
+    "id": 1789190329023,
+    "timestamp": "2026-09-12 13:18:49",
+    "mode": "explain",
+    "tier": "normal",
+    "model": "llama3.2:3b",
+    "latency_s": 12.09,
+    "snippet": "Sample explanation text to copy",
+    "response": "The target text is a sample explanation that you can copy and paste into the Microsoft Edge browser window. Think of it like a note-taking tool, where you can write down important information or instructions that you want to reference later."
+  },
+  {
+    "id": 1789187681092,
+    "timestamp": "2026-09-12 12:34:41",
+    "mode": "explain",
+    "tier": "lite",
+    "model": "smollm2:1.7b",
+    "latency_s": 1.46,
+    "snippet": "[Active Window: wat-this Setup & AI Hub]",
+    "response": "This is the active control center for the wat-this ambient copilot, allowing you to manage hardware profiles, test AI inferences, and customize hotkeys."
+  },
+  {
     "id": 1789186543775,
     "timestamp": "2026-09-12 12:15:43",
     "mode": "simplify",

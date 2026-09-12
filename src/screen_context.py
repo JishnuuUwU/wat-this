@@ -12,6 +12,7 @@ import json
 import subprocess
 import time
 import re
+import tempfile
 
 # Win32 API handles
 user32 = ctypes.windll.user32
@@ -31,10 +32,37 @@ class RECT(ctypes.Structure):
         ("bottom", ctypes.c_long)
     ]
 
+def clean_window_title(title):
+    """
+    Strips browser and app chrome noise from window title to isolate the actual document or page topic.
+    e.g. 'Degree Class Grouping... - Jira Service Management and 1 more page - Personal - Microsoft Edge'
+         -> 'Degree Class Grouping... - Jira Service Management'
+    """
+    if not title:
+        return ""
+    # Strip zero-width spaces and invisible characters
+    cleaned = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", title).strip()
+
+    # Browser / App tab suffixes
+    patterns = [
+        r"\s+and\s+\d+\s+more\s+pages?.*$",
+        r"\s*-\s*Personal\s*-\s*Microsoft\s*Edge.*$",
+        r"\s*-\s*Work\s*-\s*Microsoft\s*Edge.*$",
+        r"\s*-\s*\[InPrivate\]\s*-\s*Microsoft\s*Edge.*$",
+        r"\s*-\s*Microsoft\s*Edge.*$",
+        r"\s*-\s*Google\s*Chrome.*$",
+        r"\s*-\s*Mozilla\s*Firefox.*$",
+        r"\s*-\s*Brave.*$",
+        r"\s*-\s*Visual\s*Studio\s*Code.*$",
+    ]
+    for pat in patterns:
+        cleaned = re.sub(pat, "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned if cleaned else title.strip()
+
 def get_foreground_window_info(exclude_hwnds=None):
     """
     Retrieves metadata of the active foreground window before wat-this HUD appeared:
-    returns dict with 'hwnd', 'title', 'class', 'process_name', 'rect': (left, top, right, bottom).
+    returns dict with 'hwnd', 'title', 'clean_title', 'class', 'process_name', 'rect': (left, top, right, bottom).
     """
     exclude_set = set(exclude_hwnds or [])
     try:
@@ -46,13 +74,13 @@ def get_foreground_window_info(exclude_hwnds=None):
                 hwnd = user32.GetWindow(hwnd, 2)
 
         if not hwnd or not user32.IsWindow(hwnd):
-            return {"hwnd": 0, "title": "Desktop", "process_name": "explorer.exe", "class": "Progman", "rect": (0, 0, 1920, 1080)}
+            return {"hwnd": 0, "title": "Desktop", "clean_title": "Desktop", "process_name": "explorer.exe", "class": "Progman", "rect": (0, 0, 1920, 1080)}
 
         # Window Title
         length = user32.GetWindowTextLengthW(hwnd)
         buff = ctypes.create_unicode_buffer(length + 2)
         user32.GetWindowTextW(hwnd, buff, length + 2)
-        title = buff.value.strip()
+        raw_title = buff.value.strip()
 
         # Window Class
         class_buff = ctypes.create_unicode_buffer(256)
@@ -91,15 +119,17 @@ def get_foreground_window_info(exclude_hwnds=None):
             finally:
                 kernel32.CloseHandle(h_proc)
 
+        clean_t = clean_window_title(raw_title)
         return {
             "hwnd": hwnd,
-            "title": title if title else proc_name,
+            "title": raw_title if raw_title else proc_name,
+            "clean_title": clean_t if clean_t else (raw_title if raw_title else proc_name),
             "process_name": proc_name,
             "class": win_class,
             "rect": (rect.left, rect.top, rect.right, rect.bottom)
         }
     except Exception as e:
-        return {"hwnd": 0, "title": "Active Application", "process_name": "System", "class": "", "rect": (0, 0, 1920, 1080)}
+        return {"hwnd": 0, "title": "Active Application", "clean_title": "Active Application", "process_name": "System", "class": "", "rect": (0, 0, 1920, 1080)}
 
 def capture_window_text_native(hwnd):
     """
@@ -129,64 +159,156 @@ def capture_window_text_native(hwnd):
     user32.EnumChildWindows(hwnd, WNDENUMPROC(enum_proc), 0)
     return results
 
-def run_windows_native_ocr_snippet(rect=None, timeout_sec=2.0):
+def capture_screen_rect_to_bmp(rect, output_bmp_path):
     """
-    Captures a screen region and passes it through Windows 10/11 built-in
-    Windows.Media.Ocr.OcrEngine. Runs cleanly with a strict timeout to ensure zero latency overhead.
+    Captures a screen rectangle into a standard 24-bit uncompressed BMP file
+    using pure Win32 GDI ctypes in ~7ms with zero external DLL dependencies.
+    """
+    try:
+        x1, y1, x2, y2 = rect
+        # Clamp coordinates
+        sw = user32.GetSystemMetrics(0)
+        sh = user32.GetSystemMetrics(1)
+        x1 = max(0, min(sw - 10, x1))
+        y1 = max(0, min(sh - 10, y1))
+        x2 = max(x1 + 10, min(sw, x2))
+        y2 = max(y1 + 10, min(sh, y2))
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            return False
+
+        h_desktop = user32.GetDesktopWindow()
+        h_dc_screen = user32.GetDC(h_desktop)
+        if not h_dc_screen:
+            return False
+
+        h_dc_mem = gdi32.CreateCompatibleDC(h_dc_screen)
+        h_bmp = gdi32.CreateCompatibleBitmap(h_dc_screen, w, h)
+        h_old = gdi32.SelectObject(h_dc_mem, h_bmp)
+
+        gdi32.BitBlt(h_dc_mem, 0, 0, w, h, h_dc_screen, x1, y1, SRCCOPY)
+
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ('biSize', wintypes.DWORD),
+                ('biWidth', wintypes.LONG),
+                ('biHeight', wintypes.LONG),
+                ('biPlanes', wintypes.WORD),
+                ('biBitCount', wintypes.WORD),
+                ('biCompression', wintypes.DWORD),
+                ('biSizeImage', wintypes.DWORD),
+                ('biXPelsPerMeter', wintypes.LONG),
+                ('biYPelsPerMeter', wintypes.LONG),
+                ('biClrUsed', wintypes.DWORD),
+                ('biClrImportant', wintypes.DWORD)
+            ]
+
+        bi = BITMAPINFOHEADER()
+        bi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bi.biWidth = w
+        bi.biHeight = -h  # top-down DIB
+        bi.biPlanes = 1
+        bi.biBitCount = 24
+        bi.biCompression = 0
+
+        row_size = ((w * 24 + 31) // 32) * 4
+        image_size = row_size * h
+        bi.biSizeImage = image_size
+
+        buf = ctypes.create_string_buffer(image_size)
+        gdi32.GetDIBits(h_dc_mem, h_bmp, 0, h, buf, ctypes.byref(bi), 0)
+
+        # Release GDI handles immediately
+        gdi32.SelectObject(h_dc_mem, h_old)
+        gdi32.DeleteObject(h_bmp)
+        gdi32.DeleteDC(h_dc_mem)
+        user32.ReleaseDC(h_desktop, h_dc_screen)
+
+        # BMP 14-byte file header
+        file_size = 14 + 40 + image_size
+        bmp_header = bytearray(b'BM')
+        bmp_header += file_size.to_bytes(4, 'little')
+        bmp_header += (0).to_bytes(4, 'little')
+        bmp_header += (54).to_bytes(4, 'little')
+
+        with open(output_bmp_path, 'wb') as f:
+            f.write(bmp_header)
+            f.write(bytearray(bi))
+            f.write(buf.raw)
+        return True
+    except Exception as e:
+        return False
+
+def run_windows_native_ocr_snippet(rect=None, timeout_sec=4.0):
+    """
+    Captures target window/screen region and runs Windows 10/11 built-in
+    Windows.Media.Ocr.OcrEngine via pure PowerShell MTA + Windows Runtime extensions.
     Returns list of extracted text strings.
     """
-    # Build PowerShell command leveraging built-in Windows Runtime OCR
-    # Clamped to target rect or cursor area
+    temp_bmp = os.path.join(tempfile.gettempdir(), f"wat_this_ocr_{os.getpid()}_{int(time.time()*1000)%100000}.bmp")
     try:
-        if rect:
-            l, t, r, b = rect
-            w = max(10, r - l)
-            h = max(10, b - t)
-        else:
-            l, t, w, h = 0, 0, 1920, 1080
+        # 1. Determine screen rect
+        if not rect:
+            sw = user32.GetSystemMetrics(0)
+            sh = user32.GetSystemMetrics(1)
+            rect = (0, 0, sw, sh)
 
-        # PowerShell script using System.Drawing + Windows.Media.Ocr
+        # 2. Fast GDI BitBlt capture (~7ms)
+        ok = capture_screen_rect_to_bmp(rect, temp_bmp)
+        if not ok or not os.path.exists(temp_bmp) or os.path.getsize(temp_bmp) < 100:
+            return []
+
+        norm_path = os.path.abspath(temp_bmp).replace("\\", "\\\\")
+
+        # 3. Robust WinRT OCR script with System.Runtime.WindowsRuntime AsTask awaiter
         ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
-Add-Type -AssemblyName System.Drawing, Windows.Foundation
-[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if (-not $engine) {{ exit 0 }}
+try {{
+    Add-Type -AssemblyName "System.Runtime.WindowsRuntime"
+    $asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.IsGenericMethod }} | Select-Object -First 1
 
-$bmp = New-Object System.Drawing.Bitmap({w}, {h})
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen({l}, {t}, 0, 0, (New-Object System.Drawing.Size({w}, {h})))
-$g.Dispose()
+    function Await-WinRT($asyncOp, $type) {{
+        $method = $asTaskGeneric.MakeGenericMethod($type)
+        $task = $method.Invoke($null, @($asyncOp))
+        return $task.GetAwaiter().GetResult()
+    }}
 
-$ms = New-Object System.IO.MemoryStream
-$bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Bmp)
-$bmp.Dispose()
-$bytes = $ms.ToArray()
-$ms.Dispose()
+    [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
 
-# Create SoftwareBitmap from memory
-$ras = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
-$dw = New-Object Windows.Storage.Streams.DataWriter($ras)
-$dw.WriteBytes($bytes)
-$dw.StoreAsync().AsTask().Wait()
-$dw.Dispose()
-$ras.Seek(0)
+    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    if (-not $engine) {{ exit 0 }}
 
-$decoder = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($ras).AsTask().Result
-$s_bmp = $decoder.GetSoftwareBitmapAsync().AsTask().Result
-$result = $engine.RecognizeAsync($s_bmp).AsTask().Result
-$s_bmp.Dispose()
-$ras.Dispose()
+    $p = [System.IO.Path]::GetFullPath('{norm_path}')
+    $file = Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($p)) ([Windows.Storage.StorageFile])
+    $stream = Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    $decoder = Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bitmap = Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 
-foreach ($line in $result.Lines) {{
-    Write-Output $line.Text
+    $result = Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+    $bitmap.Dispose()
+    $stream.Dispose()
+
+    if ($result) {{
+        foreach ($line in $result.Lines) {{
+            Write-Output $line.Text
+        }}
+    }}
+}} catch {{
+    exit 0
 }}
 """
         proc = subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            ["powershell.exe", "-Mta", "-NoProfile", "-NonInteractive", "-Command", ps_script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=0x08000000 # CREATE_NO_WINDOW
         )
         stdout, _ = proc.communicate(timeout=timeout_sec)
@@ -194,76 +316,99 @@ foreach ($line in $result.Lines) {{
         return lines
     except Exception:
         return []
+    finally:
+        if os.path.exists(temp_bmp):
+            try:
+                os.remove(temp_bmp)
+            except Exception:
+                pass
 
-def get_screen_context_summary(exclude_hwnds=None, max_context_chars=1200):
+def get_screen_context_summary(exclude_hwnds=None, max_context_chars=1800, do_ocr=True):
     """
-    Gathers comprehensive, zero-latency screen context:
-    - Active Application process name (e.g. Code.exe, chrome.exe)
-    - Active Window title (e.g. 'wat_this.py - Visual Studio Code')
-    - Active Window visible UI text / controls
+    Gathers comprehensive desktop & active window context:
+    - Active Application process name (e.g. Code.exe, msedge.exe)
+    - Active Window clean title (e.g. 'Degree Class Grouping - Jira Service Management')
+    - Active Window visible UI text / OCR lines
     Returns formatted context dict.
     """
     win_info = get_foreground_window_info(exclude_hwnds)
     hwnd = win_info.get("hwnd", 0)
-    title = win_info.get("title", "")
+    raw_title = win_info.get("title", "")
+    clean_title = win_info.get("clean_title", raw_title)
     proc = win_info.get("process_name", "")
     rect = win_info.get("rect", (0, 0, 1920, 1080))
 
     # Fast child window text extraction (0ms)
     child_texts = capture_window_text_native(hwnd)
-    
-    # Try native OCR on window bounds with quick timeout
+
+    # Native Windows Media WinRT OCR on window bounds
     ocr_lines = []
-    # If child texts are minimal (like in Chrome/Electron), OCR window rect
-    if len(child_texts) < 3 and rect and rect[2] - rect[0] > 100:
-        ocr_lines = run_windows_native_ocr_snippet(rect, timeout_sec=1.2)
+    if do_ocr and rect and (rect[2] - rect[0] > 60) and (rect[3] - rect[1] > 60):
+        ocr_lines = run_windows_native_ocr_snippet(rect, timeout_sec=4.0)
 
     combined_text = []
-    if child_texts:
-        combined_text.extend(child_texts[:8])
-    if ocr_lines:
-        combined_text.extend(ocr_lines[:15])
+    seen = set()
+    for item in child_texts[:8]:
+        item_c = item.strip()
+        if item_c and item_c not in seen:
+            seen.add(item_c)
+            combined_text.append(item_c)
+
+    for line in ocr_lines[:25]:
+        line_c = line.strip()
+        if line_c and line_c not in seen:
+            seen.add(line_c)
+            combined_text.append(line_c)
 
     clean_snippet = "\n".join(combined_text)
     if len(clean_snippet) > max_context_chars:
         clean_snippet = clean_snippet[:max_context_chars] + "..."
 
     return {
-        "title": title,
+        "title": raw_title,
+        "clean_title": clean_title,
         "process": proc,
         "rect": rect,
         "visible_text": clean_snippet,
-        "has_content": bool(clean_snippet.strip() or title)
+        "has_content": bool(clean_snippet.strip() or clean_title)
     }
 
 def format_prompt_with_screen_context(highlighted_text, screen_context, mode_prompt=""):
     """
-    Constructs a rich prompt embedding full desktop & window context alongside the highlighted target.
-    If no text is highlighted, the screen context becomes the primary subject for explanation/help!
+    Constructs an intelligent prompt embedding on-screen content alongside the highlighted target.
+    If no text is highlighted, the visible screen content becomes the primary focal subject.
+    Explicitly instructs the LLM NOT to explain raw executable names (e.g. msedge.exe).
     """
-    title = screen_context.get("title", "")
+    clean_title = screen_context.get("clean_title") or screen_context.get("title", "")
     proc = screen_context.get("process", "")
     vis_text = screen_context.get("visible_text", "")
 
-    header_parts = []
-    if title:
-        header_parts.append(f"Active Application: {proc} (Window: '{title}')")
-    if vis_text:
-        header_parts.append(f"Surrounding Screen Context:\n{vis_text}")
+    # Check if highlighted_text is just an active window fallback or actual text
+    is_real_selection = bool(highlighted_text and highlighted_text.strip() and not highlighted_text.startswith("[Active Window:") and not highlighted_text.startswith("[Screen:"))
 
-    context_block = "\n".join(header_parts)
+    if is_real_selection:
+        context_parts = []
+        if clean_title:
+            context_parts.append(f"Application / Page: {clean_title} ({proc})")
+        if vis_text:
+            context_parts.append(f"Surrounding Screen Context:\n{vis_text}")
+        context_block = "\n".join(context_parts)
 
-    if highlighted_text and highlighted_text.strip():
         prompt = (
-            f"[CONTEXT]\n{context_block}\n\n"
-            f"[FOCAL TARGET]:\n{highlighted_text}\n\n"
+            f"[SURROUNDING SCREEN CONTEXT]\n{context_block}\n\n"
+            f"[SELECTED FOCAL TARGET]:\n{highlighted_text}\n\n"
             f"[TASK]: {mode_prompt}"
         )
     else:
+        # The user opened copilot on active screen without selecting a snippet
+        content_body = vis_text if vis_text else clean_title
         prompt = (
-            f"[SCREEN CONTEXT]\n{context_block}\n\n"
-            f"[TASK]: The user opened the copilot on this active window without selecting specific text. "
-            f"Analyze the visible screen context above and provide guidance: {mode_prompt}"
+            f"[VISIBLE ON-SCREEN CONTENT]:\n{content_body}\n\n"
+            f"[ACTIVE WINDOW / ENVIRONMENT]:\nPage / Document: '{clean_title}' ({proc})\n\n"
+            f"[TASK]: The user triggered the copilot on this active screen without selecting a snippet.\n"
+            f"Analyze and respond based on the VISIBLE ON-SCREEN CONTENT above: {mode_prompt}\n"
+            f"IMPORTANT DIRECTIVE: Focus completely on the actual content, document, inquiry, or code shown on screen. "
+            f"Do NOT explain what the application executable (e.g. '{proc}', msedge.exe, chrome.exe) is."
         )
 
     return prompt
