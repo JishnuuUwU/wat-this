@@ -123,6 +123,17 @@ class SetupApp:
             except Exception:
                 pass
 
+        # Apply Windows 11 Dark Mode & Rounded Corners to Setup Wizard Window
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            v_true = ctypes.c_int(1)
+            v_round = ctypes.c_int(3)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v_true), ctypes.sizeof(v_true))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(v_round), ctypes.sizeof(v_round))
+        except Exception:
+            pass
+
         # Load 36px PNG Icon for Sidebar Header
         self.icon_img = None
         icon_png = os.path.join(config_manager.ASSETS_DIR, "icon_36.png")
@@ -760,6 +771,15 @@ class SetupApp:
 
         tk.Label(linger_card, text="DISPLAY BEHAVIOR", font=FONT_MICRO, bg=COLOR_CARD, fg=COLOR_BLUE).pack(anchor="w", padx=16, pady=(10, 4))
         
+        # Frosted Glass & Blur Row
+        row_blur = tk.Frame(linger_card, bg=COLOR_CARD)
+        row_blur.pack(fill="x", padx=16, pady=(4, 4))
+        self.var_blur = tk.BooleanVar(value=self.config.get("blur_enabled", True))
+        self.sw_blur = ToggleSwitch(row_blur, variable=self.var_blur, bg=COLOR_CARD)
+        self.sw_blur.pack(side="left", padx=(0, 12))
+        tk.Label(row_blur, text="Enable Windows Acrylic Blur & Frosted Glass (Normal & Extreme tiers)", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT).pack(side="left")
+        tk.Label(linger_card, text="Hardware-accelerated Windows Acrylic blur behind with subtle transparency and native drop shadow.", font=FONT_SMALL, bg=COLOR_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", padx=70, pady=(0, 8))
+
         l_box = tk.Frame(linger_card, bg=COLOR_CARD)
         l_box.pack(fill="x", padx=16, pady=(0, 6))
 
@@ -814,44 +834,54 @@ class SetupApp:
         threading.Thread(target=self._check_ollama_worker, daemon=True).start()
 
     def _check_ollama_worker(self):
-        url = self.config.get("ollama_url", "http://localhost:11434").rstrip("/")
-        try:
-            req = urllib.request.Request(f"{url}/api/version")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                ver = data.get("version", "Active")
-                self.root.after(0, lambda: self.service_badge.configure(text=f" ● Ollama Online (v{ver}) ", fg=COLOR_GREEN, bg=COLOR_GREEN_BG, highlightbackground=COLOR_GREEN))
-                self.root.after(0, lambda: self.diag_ver_lbl.configure(text=f"Connected (v{ver})", fg=COLOR_GREEN))
-                self.refresh_inventory()
-        except Exception:
+        url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
+        online = False
+        ver = "Active"
+        for target_url in [url, "http://127.0.0.1:11434", "http://localhost:11434"]:
+            try:
+                req = urllib.request.Request(f"{target_url.rstrip('/')}/api/version")
+                with urllib.request.urlopen(req, timeout=2.5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    ver = data.get("version", "Active")
+                    online = True
+                    break
+            except Exception:
+                continue
+
+        if online:
+            self.root.after(0, lambda: self.service_badge.configure(text=f" ● Ollama Online (v{ver}) ", fg=COLOR_GREEN, bg=COLOR_GREEN_BG, highlightbackground=COLOR_GREEN))
+            self.root.after(0, lambda: self.diag_ver_lbl.configure(text=f"Connected (v{ver})", fg=COLOR_GREEN))
+            self.refresh_inventory()
+        else:
             self.root.after(0, lambda: self.service_badge.configure(text=" ✕ Ollama Offline ", fg=COLOR_RED, bg=COLOR_RED_BG, highlightbackground=COLOR_RED))
             self.root.after(0, lambda: self.diag_ver_lbl.configure(text="Offline (Click Spawn)", fg=COLOR_RED))
 
     def spawn_ollama_serve(self):
-        ollama_bin = r"C:\Users\jishn\AppData\Local\Programs\Ollama\ollama.exe"
-        if not os.path.exists(ollama_bin):
-            ollama_bin = "ollama"
-        try:
-            subprocess.Popen([ollama_bin, "serve"], creationflags=0x08000000)
-            self.service_badge.configure(text=" ● Starting Ollama... ", fg=COLOR_AMBER, bg=COLOR_CARD_SUB)
-            self.root.after(3000, self.check_ollama_status)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to start Ollama server: {e}")
+        url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
+        self.service_badge.configure(text=" ● Starting Ollama... ", fg=COLOR_AMBER, bg=COLOR_CARD_SUB)
+        def _spawn():
+            success = config_manager.ensure_ollama_running(url, wait_seconds=8)
+            self.root.after(0, self.check_ollama_status)
+        threading.Thread(target=_spawn, daemon=True).start()
 
     def refresh_inventory(self):
         threading.Thread(target=self._refresh_inventory_worker, daemon=True).start()
 
     def _refresh_inventory_worker(self):
-        url = self.config.get("ollama_url", "http://localhost:11434").rstrip("/")
-        try:
-            req = urllib.request.Request(f"{url}/api/tags")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                models = data.get("models", [])
-                self.installed_models = [m.get("name", "") for m in models]
-                self.root.after(0, lambda: self.update_badges(models))
-        except Exception:
-            pass
+        url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
+        models = []
+        for target_url in [url, "http://127.0.0.1:11434", "http://localhost:11434"]:
+            try:
+                req = urllib.request.Request(f"{target_url.rstrip('/')}/api/tags")
+                with urllib.request.urlopen(req, timeout=2.5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    models = data.get("models", [])
+                    if models:
+                        break
+            except Exception:
+                continue
+        self.installed_models = [m.get("name", "") for m in models]
+        self.root.after(0, lambda: self.update_badges(models))
 
     def update_badges(self, models_data):
         tiers = self.config.get("tiers", {})
@@ -975,6 +1005,7 @@ class SetupApp:
         want_autostart = self.var_autostart.get()
         config_manager.set_windows_autostart(want_autostart)
         self.config["tts_enabled"] = self.var_tts.get()
+        self.config["blur_enabled"] = self.var_blur.get()
 
         try:
             self.config["linger_duration_ms"] = int(self.entry_linger.get()) * 1000

@@ -26,6 +26,16 @@ def clean_text_for_speech(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+def is_speaking():
+    """Returns True if the speech synthesizer process is currently active."""
+    global _active_process
+    with _lock:
+        if _active_process is not None:
+            if _active_process.poll() is None:
+                return True
+            _active_process = None
+    return False
+
 def stop_speech():
     """Immediately halts any currently speaking synthesizer."""
     global _active_process

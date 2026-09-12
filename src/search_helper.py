@@ -13,7 +13,7 @@ def search_duckduckgo(query, max_results=2):
             url,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) wat-this/1.0"}
         )
-        with urllib.request.urlopen(req, timeout=3) as response:
+        with urllib.request.urlopen(req, timeout=1.2) as response:
             data = json.loads(response.read().decode('utf-8', errors='ignore'))
             results = []
             if data.get("Abstract"):

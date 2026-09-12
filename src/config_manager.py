@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
     "autostart": False,
     "tts_enabled": False,
     "tts_hotkey": "ctrl+alt+s",
+    "blur_enabled": True,
+    "hud_opacity": 0.93,
     "modes": {
         "explain": {
             "name": "Explain & Teach",
@@ -156,15 +158,93 @@ def is_web_search_allowed(tier_key=None):
     spec = get_tier_spec(tier_key)
     return spec.get("web_search", False)
 
+import time
+
+def find_ollama_binary():
+    """Locates the Ollama executable on the system."""
+    import shutil
+    candidate = shutil.which("ollama")
+    if candidate and os.path.exists(candidate):
+        return candidate
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if local_app_data:
+        p = os.path.join(local_app_data, r"Programs\Ollama\ollama.exe")
+        if os.path.exists(p):
+            return p
+    program_files = os.environ.get("ProgramFiles", "")
+    if program_files:
+        p = os.path.join(program_files, r"Ollama\ollama.exe")
+        if os.path.exists(p):
+            return p
+    return "ollama"
+
+def normalize_ollama_url(url="http://localhost:11434"):
+    """Normalizes Ollama URL, preferring 127.0.0.1 on Windows to bypass IPv6 resolution delays/failures."""
+    if not url:
+        return "http://127.0.0.1:11434"
+    u = url.rstrip("/")
+    if "localhost" in u:
+        return u.replace("localhost", "127.0.0.1")
+    return u
+
+def is_ollama_online(url="http://127.0.0.1:11434"):
+    """Checks if Ollama server is responding to HTTP queries."""
+    urls = [url, "http://127.0.0.1:11434", "http://localhost:11434"]
+    seen = set()
+    for u in urls:
+        if not u:
+            continue
+        clean = u.rstrip("/")
+        if clean in seen:
+            continue
+        seen.add(clean)
+        try:
+            req = urllib.request.Request(f"{clean}/api/version")
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                return True
+        except Exception:
+            continue
+    return False
+
+def ensure_ollama_running(url="http://127.0.0.1:11434", wait_seconds=6):
+    """Checks if Ollama is online, and if not, automatically launches 'ollama serve' in the background."""
+    if is_ollama_online(url):
+        return True
+    
+    ollama_bin = find_ollama_binary()
+    try:
+        # CREATE_NO_WINDOW (0x08000000) spawns Ollama silently without popping up a console
+        subprocess.Popen([ollama_bin, "serve"], creationflags=0x08000000)
+    except Exception as e:
+        print(f"[WARN] Failed to auto-spawn Ollama daemon ({ollama_bin}): {e}")
+        return False
+        
+    start_t = time.time()
+    while time.time() - start_t < wait_seconds:
+        time.sleep(0.4)
+        if is_ollama_online(url):
+            return True
+    return False
+
 def get_installed_ollama_models(ollama_url="http://localhost:11434"):
     """Queries Ollama API tags to return a list of model names installed on the system."""
-    try:
-        req = urllib.request.Request(f"{ollama_url.rstrip('/')}/api/tags")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return [m.get("name") for m in data.get("models", []) if "name" in m]
-    except Exception:
-        return []
+    targets = [ollama_url, "http://127.0.0.1:11434", "http://localhost:11434"]
+    seen = set()
+    for target in targets:
+        if not target:
+            continue
+        clean = target.rstrip("/")
+        if clean in seen:
+            continue
+        seen.add(clean)
+        try:
+            req = urllib.request.Request(f"{clean}/api/tags")
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return [m.get("name") for m in data.get("models", []) if "name" in m]
+        except Exception:
+            continue
+    return []
 
 def get_startup_shortcut_path():
     appdata = os.environ.get("APPDATA", "")

@@ -8,6 +8,8 @@
   "autostart": false,
   "tts_enabled": false,
   "tts_hotkey": "ctrl+alt+s",
+  "blur_enabled": true,
+  "hud_opacity": 0.93,
   "modes": {
     "explain": {
       "name": "Explain & Teach",
