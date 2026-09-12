@@ -43,32 +43,55 @@ COLOR_RED_BG       = "#281215"  # Danger pill background
 COLOR_PURPLE       = "#A371F7"  # Extreme tier accent
 
 class ToggleSwitch(tk.Canvas):
-    """Modern pill-shaped toggle switch replacing raw checkbuttons."""
+    """Modern animated pill-shaped toggle switch with smooth sliding thumb interpolation."""
     def __init__(self, parent, variable=None, command=None, width=42, height=22, bg=COLOR_CARD, active_color=COLOR_BLUE):
         super().__init__(parent, width=width, height=height, bg=bg, highlightthickness=0, cursor="hand2")
         self.var = variable or tk.BooleanVar(value=False)
         self.command = command
         self.active_color = active_color
         self.bg_color = bg
+        self.animating = False
+        self.target_tx = 21.0 if self.var.get() else 2.0
+        self.current_tx = self.target_tx
         self.bind("<Button-1>", self.toggle)
         self.draw()
 
     def toggle(self, event=None):
-        self.var.set(not self.var.get())
-        self.draw()
+        new_val = not self.var.get()
+        self.var.set(new_val)
+        self._start_slide_animation(21.0 if new_val else 2.0)
         if self.command:
             self.command()
+
+    def _start_slide_animation(self, target_tx):
+        self.target_tx = target_tx
+        if not self.animating:
+            self.animating = True
+            self._animate_tick()
+
+    def _animate_tick(self):
+        diff = self.target_tx - self.current_tx
+        if abs(diff) < 1.0:
+            self.current_tx = self.target_tx
+            self.animating = False
+            self.draw()
+            return
+
+        self.current_tx += diff * 0.42
+        self.draw()
+        self.after(16, self._animate_tick)
 
     def draw(self):
         self.delete("all")
         val = self.var.get()
-        track = self.active_color if val else "#30363D"
+        # Smooth color transition when passing midpoint
+        track = self.active_color if (val or self.current_tx > 11.5) else "#30363D"
         # Draw rounded pill track
         self.create_oval(1, 1, 21, 21, fill=track, outline=track)
         self.create_oval(21, 1, 41, 21, fill=track, outline=track)
         self.create_rectangle(11, 1, 31, 21, fill=track, outline=track)
         # Draw thumb
-        tx = 21 if val else 2
+        tx = int(self.current_tx)
         self.create_oval(tx, 2, tx + 18, 20, fill="#FFFFFF", outline="#FFFFFF")
 
 
@@ -128,9 +151,11 @@ class SetupApp:
             self.root.update_idletasks()
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
             v_true = ctypes.c_int(1)
-            v_round = ctypes.c_int(3)
+            v_round = ctypes.c_int(2)  # DWMWCP_ROUND (Fluent rounded corners)
+            v_border = ctypes.c_int(0x0033281E)  # Subtle dark obsidian border
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v_true), ctypes.sizeof(v_true))
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(v_round), ctypes.sizeof(v_round))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(v_border), ctypes.sizeof(v_border))
         except Exception:
             pass
 
@@ -325,6 +350,9 @@ class SetupApp:
         self.nav_buttons[key]["lbl"].configure(bg=bg)
 
     def switch_view(self, key):
+        if self.active_tab == key and getattr(self, "_view_initialized", False):
+            return
+        self._view_initialized = True
         self.active_tab = key
 
         # Update sidebar styling
@@ -350,16 +378,27 @@ class SetupApp:
         self.view_title_lbl.configure(text=title)
         self.view_sub_lbl.configure(text=sub)
 
-        # Show target page
+        # Smooth View Transition Animation
+        target_frame = self.pages.get(key)
         for p_key, frame in self.pages.items():
-            if p_key == key:
-                frame.pack(fill="both", expand=True)
-            else:
+            if p_key != key:
                 frame.pack_forget()
+
+        if target_frame:
+            target_frame.pack(fill="both", expand=True)
+            self._animate_page_entrance(target_frame)
 
         # Update active tier label
         active_key, active_spec = config_manager.get_active_tier()
         self.sidebar_tier_lbl.configure(text=f"Active: {active_spec.get('name')} ({active_spec.get('ram_target')})")
+
+    def _animate_page_entrance(self, frame, step=0):
+        offsets = [4, 2, 0]
+        if step < len(offsets):
+            frame.pack_configure(pady=(offsets[step], 0))
+            self.root.after(16, lambda: self._animate_page_entrance(frame, step + 1))
+        else:
+            frame.pack_configure(pady=0)
 
     # ---------------------------------------------------------------------------
     # PAGE 1: DIAGNOSTICS & TELEMETRY
@@ -389,11 +428,11 @@ class SetupApp:
         self.ram_bar = ttk.Progressbar(c_ram, mode="determinate", value=used_pct)
         self.ram_bar.pack(fill="x", padx=16, pady=(0, 10))
 
-        rec_tier = "Normal (3 – 5 GB)"
-        if avail_ram and avail_ram < 3.0:
-            rec_tier = "Lite (< 2 GB)"
-        elif avail_ram and avail_ram > 8.0:
-            rec_tier = "Extreme (Mistral 7B)"
+        rec_tier = "Normal (6 – 10 GB)"
+        if avail_ram and avail_ram < 4.0:
+            rec_tier = "Lite (< 4 GB)"
+        elif avail_ram and avail_ram >= 12.0:
+            rec_tier = "Extreme (12 – 16 GB)"
         
         rec_pill = tk.Label(
             c_ram, text=f" Recommended: {rec_tier} ", font=FONT_MICRO,
@@ -742,28 +781,30 @@ class SetupApp:
         hk_card = tk.Frame(page, bg=COLOR_CARD, bd=1, relief="solid", highlightbackground=COLOR_CARD_BORDER, highlightthickness=1)
         hk_card.pack(fill="x", pady=(0, 12), ipady=8)
 
-        tk.Label(hk_card, text="WORKFLOW MODES & TIER REQUIREMENTS", font=FONT_MICRO, bg=COLOR_CARD, fg=COLOR_BLUE).pack(anchor="w", padx=16, pady=(10, 6))
+        tk.Label(hk_card, text="UNIVERSAL COMMAND PALETTE & OPTIONS", font=FONT_MICRO, bg=COLOR_CARD, fg=COLOR_BLUE).pack(anchor="w", padx=16, pady=(10, 6))
+
+        # Universal Keybind Banner
+        hk_banner = tk.Frame(hk_card, bg=COLOR_CARD_SUB, bd=1, relief="solid", highlightbackground=COLOR_BLUE)
+        hk_banner.pack(fill="x", padx=16, pady=(0, 10), ipady=6)
+        tk.Label(hk_banner, text="GLOBAL KEYBIND:", font=FONT_MICRO, bg=COLOR_CARD_SUB, fg=COLOR_TEXT_MUTED).pack(side="left", padx=(12, 6))
+        tk.Label(hk_banner, text="Ctrl + Alt + Space", font=FONT_BOLD, bg=COLOR_CARD_SUB, fg=COLOR_BLUE).pack(side="left", padx=(0, 10))
+        tk.Label(hk_banner, text="— Auto-copies highlighted text & pops up action options right at cursor", font=FONT_SMALL, bg=COLOR_CARD_SUB, fg=COLOR_TEXT_MUTED).pack(side="left")
 
         modes = config_manager.get_modes()
         for m_key, m_info in modes.items():
             row = tk.Frame(hk_card, bg=COLOR_CARD)
-            row.pack(fill="x", padx=16, pady=3)
+            row.pack(fill="x", padx=16, pady=2)
 
-            tk.Label(row, text=f"•  {m_info.get('name')}", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT, width=22, anchor="w").pack(side="left")
-            tk.Label(row, text=m_info.get('hotkey', '').upper(), font=FONT_CODE, bg=COLOR_CARD_SUB, fg=COLOR_BLUE, padx=8, pady=2).pack(side="left", padx=8)
+            key_num = m_info.get("key", "•")
+            icon = m_info.get("icon", "•")
+            tk.Label(row, text=f"• [{key_num}]  {icon} {m_info.get('name')}", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT, width=24, anchor="w").pack(side="left")
+            tk.Label(row, text=f"Option {key_num}", font=FONT_CODE, bg=COLOR_CARD_SUB, fg=COLOR_BLUE, padx=8, pady=1).pack(side="left", padx=8)
 
             req_tier = m_info.get("required_tier", "lite").upper()
             badge_fg = COLOR_BLUE if req_tier == "LITE" else (COLOR_GREEN if req_tier == "NORMAL" else COLOR_PURPLE)
             badge_bg = COLOR_BLUE_BG if req_tier == "LITE" else (COLOR_GREEN_BG if req_tier == "NORMAL" else "#251B33")
             pill_txt = f" {req_tier}+ " if req_tier != "EXTREME" else " EXTREME ONLY "
             tk.Label(row, text=pill_txt, font=FONT_MICRO, bg=badge_bg, fg=badge_fg, bd=1, relief="solid", highlightbackground=badge_fg, highlightthickness=1, padx=4, pady=1).pack(side="left", padx=8)
-
-        # TTS Audio Hotkey Row
-        tts_row = tk.Frame(hk_card, bg=COLOR_CARD)
-        tts_row.pack(fill="x", padx=16, pady=(3, 10))
-        tk.Label(tts_row, text="•  Text-to-Speech Audio", font=FONT_BOLD, bg=COLOR_CARD, fg=COLOR_TEXT, width=22, anchor="w").pack(side="left")
-        tk.Label(tts_row, text=self.config.get("tts_hotkey", "ctrl+alt+s").upper(), font=FONT_CODE, bg=COLOR_CARD_SUB, fg=COLOR_BLUE, padx=8, pady=2).pack(side="left", padx=8)
-        tk.Label(tts_row, text=" NORMAL+ ", font=FONT_MICRO, bg=COLOR_GREEN_BG, fg=COLOR_GREEN, bd=1, relief="solid", highlightbackground=COLOR_GREEN, highlightthickness=1, padx=4, pady=1).pack(side="left", padx=8)
 
         # Linger Timer Card
         linger_card = tk.Frame(page, bg=COLOR_CARD, bd=1, relief="solid", highlightbackground=COLOR_CARD_BORDER, highlightthickness=1)
@@ -830,8 +871,20 @@ class SetupApp:
     # ENGINE & MODEL CONTROLLERS
     # ---------------------------------------------------------------------------
     def check_ollama_status(self):
-        self.service_badge.configure(text=" ● Probing Ollama... ", fg=COLOR_AMBER, bg=COLOR_CARD_SUB)
+        self._scanner_active = True
+        self._scanner_step = 0
+        self._animate_scanner_tick()
         threading.Thread(target=self._check_ollama_worker, daemon=True).start()
+
+    def _animate_scanner_tick(self):
+        if not getattr(self, "_scanner_active", False) or not self.root.winfo_exists():
+            return
+        dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        sym = dots[self._scanner_step % len(dots)]
+        self.service_badge.configure(text=f" {sym} Probing Ollama... ", fg=COLOR_AMBER, bg=COLOR_CARD_SUB)
+        self.diag_ver_lbl.configure(text=f"Scanning {sym}", fg=COLOR_AMBER)
+        self._scanner_step += 1
+        self.root.after(90, self._animate_scanner_tick)
 
     def _check_ollama_worker(self):
         url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
@@ -848,6 +901,7 @@ class SetupApp:
             except Exception:
                 continue
 
+        self._scanner_active = False
         if online:
             self.root.after(0, lambda: self.service_badge.configure(text=f" ● Ollama Online (v{ver}) ", fg=COLOR_GREEN, bg=COLOR_GREEN_BG, highlightbackground=COLOR_GREEN))
             self.root.after(0, lambda: self.diag_ver_lbl.configure(text=f"Connected (v{ver})", fg=COLOR_GREEN))
@@ -858,9 +912,12 @@ class SetupApp:
 
     def spawn_ollama_serve(self):
         url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
-        self.service_badge.configure(text=" ● Starting Ollama... ", fg=COLOR_AMBER, bg=COLOR_CARD_SUB)
+        self._scanner_active = True
+        self._scanner_step = 0
+        self._animate_scanner_tick()
         def _spawn():
             success = config_manager.ensure_ollama_running(url, wait_seconds=8)
+            self._scanner_active = False
             self.root.after(0, self.check_ollama_status)
         threading.Thread(target=_spawn, daemon=True).start()
 

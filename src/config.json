@@ -4,36 +4,83 @@
   "auto_copy": true,
   "linger_duration_ms": 14000,
   "max_clipboard_chars": 12000,
-  "ollama_url": "http://localhost:11434",
+  "ollama_url": "http://127.0.0.1:11434",
   "autostart": false,
   "tts_enabled": false,
-  "tts_hotkey": "ctrl+alt+s",
   "blur_enabled": true,
-  "hud_opacity": 0.93,
+  "hud_opacity": 0.92,
   "modes": {
     "explain": {
       "name": "Explain & Teach",
-      "hotkey": "ctrl+alt+space",
+      "key_shortcut": "1",
+      "letter_shortcut": "e",
+      "icon": "⚡",
       "required_tier": "lite",
       "prompt_suffix": "Explain what this is in plain English with a helpful analogy if it's code. Keep it clear, friendly, and accessible."
     },
+    "fix": {
+      "name": "Fix Code",
+      "key_shortcut": "2",
+      "letter_shortcut": "f",
+      "icon": "🔧",
+      "required_tier": "lite",
+      "prompt_suffix": "Carefully analyze the target code. Identify bugs, syntax errors, or performance issues. Explain the problem concisely and provide the corrected code snippet."
+    },
     "simplify": {
       "name": "Simplify (ELI5)",
-      "hotkey": "ctrl+alt+t",
+      "key_shortcut": "3",
+      "letter_shortcut": "s",
+      "icon": "💡",
       "required_tier": "lite",
       "prompt_suffix": "Rewrite and explain this text or concept for an absolute beginner as if explaining to a 10-year-old. Remove all technical jargon."
     },
-    "fix": {
-      "name": "Fix & Bug Detector",
-      "hotkey": "ctrl+alt+f",
+    "translate": {
+      "name": "Quick Translate",
+      "key_shortcut": "4",
+      "letter_shortcut": "t",
+      "icon": "🌐",
+      "required_tier": "lite",
+      "prompt_suffix": "Translate the following text into clear, natural plain English. Provide only the translated English text and a brief 1-sentence note if cultural idiom or slang is present."
+    },
+    "regex": {
+      "name": "Regex & Shell",
+      "key_shortcut": "5",
+      "letter_shortcut": "r",
+      "icon": "🔍",
+      "required_tier": "lite",
+      "prompt_suffix": "Deconstruct and explain this regular expression pattern or terminal shell command step-by-step in plain English so any beginner can understand exactly what each component does."
+    },
+    "polish": {
+      "name": "Polish Prose",
+      "key_shortcut": "6",
+      "letter_shortcut": "p",
+      "icon": "✍️",
       "required_tier": "normal",
-      "prompt_suffix": "Carefully analyze the target code. Identify bugs, syntax errors, or performance issues. Explain the problem concisely and provide the corrected code snippet."
+      "prompt_suffix": "Rewrite this message or text to fix all grammar and punctuation errors while polishing for a crisp, confident, and professional tone."
     },
     "docstring": {
-      "name": "Generate Docstrings & Types",
-      "hotkey": "ctrl+alt+d",
+      "name": "Docstrings & Types",
+      "key_shortcut": "7",
+      "letter_shortcut": "d",
+      "icon": "📝",
       "required_tier": "extreme",
       "prompt_suffix": "Generate complete, clean, professional documentation/docstrings and type hints for this code. Format it according to the language's best conventions."
+    },
+    "audit": {
+      "name": "Security Audit",
+      "key_shortcut": "8",
+      "letter_shortcut": "a",
+      "icon": "🛡️",
+      "required_tier": "extreme",
+      "prompt_suffix": "Perform a deep technical and security audit of this code. Check for OWASP vulnerabilities, race conditions, memory leaks, algorithmic complexity Big-O, and edge-case exceptions in clean bullet points."
+    },
+    "unittest": {
+      "name": "Unit Test Generator",
+      "key_shortcut": "9",
+      "letter_shortcut": "u",
+      "icon": "🧪",
+      "required_tier": "extreme",
+      "prompt_suffix": "Generate comprehensive, robust, production-grade unit tests for this code covering happy paths, edge cases, exceptions, and mocks."
     }
   },
   "tiers": {
@@ -41,60 +88,74 @@
       "name": "Lite",
       "model": "smollm2:1.7b",
       "family": "Hugging Face SmolLM2",
-      "ram_target": "< 2 GB RAM",
-      "tagline": "Fastest & Ultra-Low Memory Footprint",
-      "description": "Strictly optimized for sub-2GB RAM usage. Basic offline functions (Explain & Simplify) with aggressive 1m memory unload.",
+      "ram_target": "< 4 GB RAM",
+      "tagline": "Ultra-Low Memory Footprint (< 4 GB)",
+      "description": "Optimized for entry hardware (< 4 GB RAM). Solid matte minimalist theme with zero Acrylic GPU overhead, sub-2GB RAM allocation, and rapid response.",
       "web_search": false,
       "interactive_chat": false,
       "tts_audio": false,
       "allowed_modes": [
         "explain",
-        "simplify"
+        "fix",
+        "simplify",
+        "translate",
+        "regex"
       ],
       "max_chat_turns": 0,
-      "keep_alive": "1m",
-      "max_tokens": 1024,
+      "num_ctx": 1024,
+      "keep_alive": "5m",
+      "max_tokens": 512,
       "system_prompt": "You are an ultra-concise, plain-English explainer. Explain what the target text or code means for an absolute beginner. Keep your entire response within 2 gentle, clear sentences. No jargon."
     },
     "normal": {
       "name": "Normal",
-      "model": "llama3.2:3b",
-      "family": "Meta Llama 3.2",
-      "ram_target": "3 \u2013 5 GB RAM",
+      "model": "llama3.1:8b",
+      "family": "Meta Llama 3.1",
+      "ram_target": "6 – 10 GB RAM",
       "tagline": "Balanced Intelligence (Recommended)",
-      "description": "Balanced coding analogies, bug detection, web search, interactive chat, and text-to-speech audio.",
+      "description": "Balanced high-performance profile (6 – 10 GB RAM). Adds tone & prose polish, web grounding, 3-turn interactive chat, hardware Acrylic blur, and SAPI audio.",
       "web_search": true,
       "interactive_chat": true,
       "tts_audio": true,
       "allowed_modes": [
         "explain",
+        "fix",
         "simplify",
-        "fix"
+        "translate",
+        "regex",
+        "polish"
       ],
-      "max_chat_turns": 2,
-      "keep_alive": "5m",
-      "max_tokens": 4096,
+      "max_chat_turns": 3,
+      "num_ctx": 2048,
+      "keep_alive": "15m",
+      "max_tokens": 2048,
       "system_prompt": "You are an ultra-clear, calming, plain-English educator. Explain what the target text or code means for an absolute beginner. Do not use complex jargon. If it is code, state what it does in plain words using an everyday real-world analogy. Keep your full response contained within 3 to 4 gentle, clear sentences."
     },
     "extreme": {
       "name": "Extreme (Expert)",
-      "model": "mistral:7b",
-      "family": "Mistral AI",
-      "ram_target": "6 \u2013 10 GB RAM",
+      "model": "qwen2.5:14b",
+      "family": "Qwen 2.5 / Mistral",
+      "ram_target": "12 – 16 GB RAM",
       "tagline": "Deep Technical Reasoning & Complete Toolset",
-      "description": "Unlocks all modes (including Docstrings/Types), unlimited multi-turn interactive chat, deep web search, and persistent 15m session cache.",
+      "description": "Full enterprise engineering suite for workstation systems (12 – 16 GB RAM). Unlocks deep security audits, unit test generation, docstrings, unlimited chat, and frosted glass aesthetic.",
       "web_search": true,
       "interactive_chat": true,
       "tts_audio": true,
       "allowed_modes": [
         "explain",
-        "simplify",
         "fix",
-        "docstring"
+        "simplify",
+        "translate",
+        "regex",
+        "polish",
+        "docstring",
+        "audit",
+        "unittest"
       ],
-      "max_chat_turns": 10,
-      "keep_alive": "15m",
-      "max_tokens": 8192,
+      "max_chat_turns": 20,
+      "num_ctx": 4096,
+      "keep_alive": "30m",
+      "max_tokens": 4096,
       "system_prompt": "You are a senior principal engineer and technical mentor. Provide a precise, highly structured explanation of the target text or code. Explain core mechanics, highlight subtle edge cases or bugs if present, and give practical implementation insights in concise, clean bullet points or short paragraphs."
     }
   }

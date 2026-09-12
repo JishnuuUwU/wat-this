@@ -23,6 +23,15 @@ from PIL import Image
 import pystray
 from pystray import MenuItem as item
 
+# Per-Monitor v2 DPI Awareness (Windows 10 1703+) for crisp rendering and exact pixel cursor tracking
+try:
+    ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+except Exception:
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
 # Ensure Windows console output handles Unicode safely without crash
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
@@ -41,6 +50,8 @@ import config_manager
 import search_helper
 import history_manager
 import tts_helper
+import screen_context
+from annotation_overlay import AnnotationOverlay
 
 # ---------------------------------------------------------------------------
 # DESIGN SYSTEM TOKENS (Obsidian Frosted Glass Theme)
@@ -64,15 +75,82 @@ COLOR_PURPLE       = "#8B5CF6"  # Violet
 MODE_COLORS = {
     "explain": COLOR_BLUE,
     "simplify": COLOR_AMBER,
+    "translate": "#06B6D4",   # Cyan
+    "regex": "#EC4899",       # Pink
     "fix": COLOR_GREEN,
-    "docstring": COLOR_PURPLE
+    "polish": "#14B8A6",      # Teal
+    "docstring": COLOR_PURPLE,
+    "audit": "#F43F5E",       # Rose / Crimson
+    "unittest": "#8B5CF6"     # Violet
 }
 
 MODE_ICONS = {
     "explain": "⚡",
     "simplify": "📝",
+    "translate": "🌐",
+    "regex": "⚙️",
     "fix": "🔍",
-    "docstring": "📜"
+    "polish": "✨",
+    "docstring": "📜",
+    "audit": "🛡️",
+    "unittest": "🧪"
+}
+
+ACTION_SUMMARIES = {
+    "explain": {
+        "summary": "Deconstructs complex concepts and logic into plain English with intuitive everyday analogies.",
+        "badge": "LITE+",
+        "tags": "⚡ Fast • Everyday Analogy • Web Enrich",
+        "tagline": "Instant plain English analogy"
+    },
+    "fix": {
+        "summary": "Deep bug analysis to detect syntax flaws, race conditions, and logic errors. Provides a 1-click copyable patch.",
+        "badge": "LITE+",
+        "tags": "🔧 Instant Patch • Bug Detection • Safe",
+        "tagline": "Detect bugs & 1-click patch"
+    },
+    "simplify": {
+        "summary": "Rewrites dense academic, legal, or technical jargon so anyone can understand it like a 10-year-old.",
+        "badge": "LITE+",
+        "tags": "💡 ELI5 • Beginner Friendly • High Clarity",
+        "tagline": "Rewrite for a 10-year-old"
+    },
+    "translate": {
+        "summary": "Contextual translation of foreign language text into natural, idiom-aware plain English.",
+        "badge": "LITE+",
+        "tags": "🌐 Translation • Multi-language • Natural",
+        "tagline": "Contextual English translation"
+    },
+    "regex": {
+        "summary": "Deconstructs complex regular expressions, regex groups, and terminal shell commands component-by-component.",
+        "badge": "LITE+",
+        "tags": "🔍 Regex Parser • CLI Explainer • Flags",
+        "tagline": "Regex & terminal CLI breakdown"
+    },
+    "polish": {
+        "summary": "Refines tone, corrects grammatical and punctuation errors, and transforms rough notes into crisp, executive prose.",
+        "badge": "NORMAL+",
+        "tags": "✍️ Grammar Polish • Tone Refinement",
+        "tagline": "Crisp grammar & tone refinement"
+    },
+    "docstring": {
+        "summary": "Generates professional, standardized function docstrings, JSDoc, and type annotations following official conventions.",
+        "badge": "EXTREME",
+        "tags": "📝 Type Hints • Standard Docstrings • Clean",
+        "tagline": "Standardized docstrings & types"
+    },
+    "audit": {
+        "summary": "Rigorous security and performance audit checking for OWASP vulnerabilities, leaks, and Big-O computational complexity.",
+        "badge": "EXTREME",
+        "tags": "🛡️ OWASP Audit • Memory Safety • Complexity",
+        "tagline": "OWASP security & Big-O audit"
+    },
+    "unittest": {
+        "summary": "Synthesizes robust, production-grade test suites covering happy paths, edge boundaries, exceptions, and mocks.",
+        "badge": "EXTREME",
+        "tags": "🧪 Unit Tests • Edge Cases • Mocking",
+        "tagline": "Production edge-case test suites"
+    }
 }
 
 FONT_FAMILY  = "Segoe UI"
@@ -83,6 +161,7 @@ FONT_BODY    = (FONT_FAMILY, 10)
 FONT_BOLD    = (FONT_FAMILY, 10, "bold")
 FONT_SMALL   = (FONT_FAMILY, 8)
 FONT_MICRO   = (FONT_FAMILY, 8, "bold")
+FONT_SUB     = (FONT_FAMILY, 8)
 FONT_CODE    = ("Consolas", 9)
 
 # ---------------------------------------------------------------------------
@@ -111,6 +190,40 @@ class MARGINS(ctypes.Structure):
         ("cyBottomHeight", ctypes.c_int),
     ]
 
+class RECT(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long)
+    ]
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_ulong),
+        ("rcMonitor", RECT),
+        ("rcWork", RECT),
+        ("dwFlags", ctypes.c_ulong)
+    ]
+
+def get_monitor_work_area(x, y):
+    """Returns (left, top, right, bottom) usable work area of the monitor containing (x, y), excluding taskbar."""
+    try:
+        user32 = ctypes.windll.user32
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        pt = POINT(int(x), int(y))
+        MONITOR_DEFAULTTONEAREST = 2
+        h_monitor = user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+        if h_monitor:
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if user32.GetMonitorInfoW(h_monitor, ctypes.byref(info)):
+                return (info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom)
+    except Exception:
+        pass
+    return (0, 0, 1920, 1040)
+
 def apply_window_blur_and_shadow(hwnd, enable=True, gradient_color=0xAA121722):
     """
     Applies native Windows 11/10 Acrylic Blur Behind, Immersive Dark Mode,
@@ -123,13 +236,16 @@ def apply_window_blur_and_shadow(hwnd, enable=True, gradient_color=0xAA121722):
 
         # 1. Dark Mode & Rounded Corners via DwmSetWindowAttribute
         v_true = ctypes.c_int(1)
-        v_round = ctypes.c_int(3)  # DWMWCP_ROUND
+        v_round = ctypes.c_int(2)  # DWMWCP_ROUND (Smooth rounded corners)
         v_backdrop = ctypes.c_int(3 if enable else 1)  # DWMSBT_TRANSIENTWINDOW (Acrylic) or NONE
+        v_border = ctypes.c_int(0x0033281E)
 
         # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
         dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v_true), ctypes.sizeof(v_true))
         # DWMWA_WINDOW_CORNER_PREFERENCE = 33
         dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(v_round), ctypes.sizeof(v_round))
+        # DWMWA_BORDER_COLOR = 34
+        dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(v_border), ctypes.sizeof(v_border))
         # DWMWA_SYSTEMBACKDROP_TYPE = 38
         dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v_backdrop), ctypes.sizeof(v_backdrop))
 
@@ -157,13 +273,10 @@ def apply_window_blur_and_shadow(hwnd, enable=True, gradient_color=0xAA121722):
     except Exception:
         pass
 
-# Native Win32 Hotkey Mapping (MOD_CONTROL=0x0002 | MOD_ALT=0x0001 | MOD_NOREPEAT=0x4000 = 0x4003)
+# Universal Win32 Hotkey Mapping (MOD_CONTROL=0x0002 | MOD_ALT=0x0001 | MOD_NOREPEAT=0x4000 = 0x4003)
+# All actions are unified into a single command palette trigger: Ctrl + Alt + Space
 WIN32_HOTKEYS = {
-    101: ("explain",   0x4003, 0x20),  # Ctrl + Alt + Space
-    102: ("fix",       0x4003, 0x46),  # Ctrl + Alt + F
-    103: ("simplify",  0x4003, 0x54),  # Ctrl + Alt + T
-    104: ("docstring", 0x4003, 0x44),  # Ctrl + Alt + D
-    105: ("tts",       0x4003, 0x53),  # Ctrl + Alt + S
+    101: ("menu", 0x4003, 0x20),  # Ctrl + Alt + Space
 }
 
 class WatThisApp:
@@ -178,6 +291,10 @@ class WatThisApp:
         self.stop_hotkeys = threading.Event()
         self.last_trigger_time = 0.0
         self.current_mode = "explain"
+        self.hud_state = "picker"  # "picker" or "streamer"
+        self.selected_action_idx = 0
+        self.current_actions = []
+        self.action_rows = []
         self.active_abort_event = None
         self.is_thinking = False
         self.is_streaming = False
@@ -192,21 +309,28 @@ class WatThisApp:
         self.anim_timer_id = None
         self.anim_pos = 0
         self.anim_dir = 1
+        self._fade_timer_id = None
+        self._current_fade_alpha = 0.0
+        self._fade_callback = None
         self._last_geom_time = 0.0
-        self.active_hud_alpha = 0.93
+        self.active_hud_alpha = 0.92
         self.hud_visible = False
         self.chat_expanded = False
         self.start_time = None
         self.chat_turns = 0
         self.anchor_x = 400
         self.anchor_y = 300
-        self.fixed_width = 520
+        self.fixed_width = 500
         self.tray_icon = None
         self.hud_hwnd = None
         self.used_web_search = False
+        self.screen_context = {}
+        self.is_pinned = False
+        self.last_mouse_activity_time = time.time()
 
         # Hidden root + Windows Status Bar (System Tray) Icon + Floating Cursor HUD
         self.init_app_environment()
+        self.annotation_overlay = AnnotationOverlay(self.root)
         self.init_tray_icon()
         self.init_hud_overlay()
         self.process_gui_queue()
@@ -217,7 +341,7 @@ class WatThisApp:
         threading.Thread(target=self._ensure_engine_warmup, daemon=True).start()
 
         print(f"[STATUS BAR] wat-this Active in Windows Status Bar (System Tray). Tier: {self.tier_spec.get('name').upper()} ({self.tier_spec.get('ram_target')}).")
-        print("Resident in Windows status bar. Press Ctrl+Alt+Space anytime to trigger HUD.")
+        print("Universal trigger: Press Ctrl+Alt+Space anytime to open Action Palette at cursor.")
 
     def _ensure_engine_warmup(self):
         """Checks if Ollama daemon is running, starting it silently in the background if offline."""
@@ -235,7 +359,7 @@ class WatThisApp:
     def init_app_environment(self):
         self.root = tk.Tk()
         self.root.title("wat-this • Ambient Copilot")
-        self.root.withdraw()  # Hidden from taskbar; resident in Windows status bar
+        self.root.withdraw()
 
     def init_tray_icon(self):
         try:
@@ -249,10 +373,8 @@ class WatThisApp:
             tier_ram = self.tier_spec.get("ram_target", "")
 
             menu = pystray.Menu(
-                item("⚡  Trigger Copilot (Ctrl+Alt+Space)", lambda *args: self.event_queue.put(("hotkey", "explain"))),
-                item("🔍  Fix & Bug Detector (Ctrl+Alt+F)", lambda *args: self.event_queue.put(("hotkey", "fix"))),
-                item("📝  Simplify (ELI5) (Ctrl+Alt+T)", lambda *args: self.event_queue.put(("hotkey", "simplify"))),
-                item("🔊  Listen (TTS Audio) (Ctrl+Alt+S)", lambda *args: self.event_queue.put(("tts", None))),
+                item("⚡  Action Palette (Ctrl+Alt+Space)", lambda *args: self.event_queue.put(("hotkey", None))),
+                item("🔊  Listen (TTS Audio)", lambda *args: self.event_queue.put(("tts", None))),
                 pystray.Menu.SEPARATOR,
                 item(f"Active Profile: {tier_name} ({tier_ram})", None, enabled=False),
                 item("⚙️  Setup & Settings", lambda *args: self.open_setup()),
@@ -267,9 +389,9 @@ class WatThisApp:
                 f"wat-this • Ambient Copilot ({tier_name})",
                 menu
             )
-            self.tray_icon.default_action = lambda *args: self.event_queue.put(("hotkey", "explain"))
+            self.tray_icon.default_action = lambda *args: self.event_queue.put(("hotkey", None))
             self.tray_icon.run_detached()
-            print(f"[STATUS BAR] wat-this icon added to Windows Status Bar (System Tray).")
+            print(f"[STATUS BAR] wat-this icon active in Windows Status Bar (System Tray).")
         except Exception as e:
             print(f"[WARN] Tray icon initialization: {e}")
 
@@ -297,34 +419,27 @@ class WatThisApp:
         tts_helper.stop_speech()
         self.stop_hotkeys.set()
 
-        # Unhook global keyboard hotkeys
         try:
             keyboard.unhook_all_hotkeys()
         except Exception:
             pass
 
-        # Stop pystray tray icon so it immediately disappears from Windows Status Bar
         if getattr(self, "tray_icon", None):
             try:
                 self.tray_icon.stop()
             except Exception:
                 pass
 
-        # Scheduled clean tear-down of Tkinter on main GUI thread
         def _cleanup_tk():
-            if getattr(self, "anim_timer_id", None):
+            for tid in ("anim_timer_id", "linger_timer_id", "gui_queue_timer_id", "_fade_timer_id"):
+                if getattr(self, tid, None):
+                    try:
+                        self.root.after_cancel(getattr(self, tid))
+                    except Exception:
+                        pass
+            if getattr(self, "annotation_overlay", None):
                 try:
-                    self.root.after_cancel(self.anim_timer_id)
-                except Exception:
-                    pass
-            if getattr(self, "linger_timer_id", None):
-                try:
-                    self.root.after_cancel(self.linger_timer_id)
-                except Exception:
-                    pass
-            if getattr(self, "gui_queue_timer_id", None):
-                try:
-                    self.root.after_cancel(self.gui_queue_timer_id)
+                    self.annotation_overlay.destroy()
                 except Exception:
                     pass
             try:
@@ -341,17 +456,18 @@ class WatThisApp:
         except Exception:
             pass
 
-        # Arm a watchdog timer to unconditionally terminate the process and release the mutex
         def _watchdog_exit():
             time.sleep(0.2)
             os._exit(0)
 
         threading.Thread(target=_watchdog_exit, daemon=True).start()
-
-        # If already called from the main thread, execute cleanup and exit immediately
         if threading.current_thread() is threading.main_thread():
             _cleanup_tk()
             os._exit(0)
+
+    def stop(self):
+        """Clean programmatic stop alias for tests and maintenance."""
+        self.quit_app()
 
     # ---------------------------------------------------------------------------
     # 2. FLOATING CURSOR OVERLAY HUD (Emerges at cursor position)
@@ -365,9 +481,28 @@ class WatThisApp:
         self.hud.configure(bg=COLOR_BG_DARK)
         self.hud.withdraw()
 
+        # Apply Windows 11 Native Fluent Rounded Corners & Immersive Dark Mode to HUD
+        try:
+            self.hud.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.hud.winfo_id()) or self.hud.winfo_id()
+            self.hud_hwnd = hwnd
+            v_true = ctypes.c_int(1)
+            v_round = ctypes.c_int(2)  # DWMWCP_ROUND (Smooth rounded window)
+            v_border = ctypes.c_int(0x0033281E)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v_true), ctypes.sizeof(v_true))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(v_round), ctypes.sizeof(v_round))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(v_border), ctypes.sizeof(v_border))
+        except Exception:
+            pass
+
         # Keyboard & Click dismiss handlers
         self.hud.bind("<Escape>", lambda e: self.hide_hud())
-        self.hud.bind("<Tab>", lambda e: self.toggle_follow_up(True))
+        self.hud.bind("<Key>", self._on_hud_key)
+
+        # Mouse activity listeners (keeps popup open while hovering)
+        self.hud.bind("<Motion>", self.on_hud_mouse_activity)
+        self.hud.bind("<Enter>", self.on_hud_mouse_activity)
+        self.hud.bind("<Leave>", self.on_hud_mouse_leave)
 
         # Main HUD Glass Container
         self.container = tk.Frame(
@@ -375,113 +510,281 @@ class WatThisApp:
             highlightbackground=COLOR_BORDER, highlightthickness=1
         )
         self.container.pack(fill="both", expand=True, padx=0, pady=0)
+        self.container.bind("<Motion>", self.on_hud_mouse_activity)
+        self.container.bind("<Enter>", self.on_hud_mouse_activity)
+        self.container.bind("<Leave>", self.on_hud_mouse_leave)
 
-        # Header Frame
+        # -----------------------------------------------------------------------
+        # SHARED HEADER (Always visible, supports dragging)
+        # -----------------------------------------------------------------------
         self.header_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
-        self.header_frame.pack(fill="x", padx=16, pady=(12, 6))
+        self.header_frame.pack(fill="x", padx=16, pady=(10, 6))
 
-        # Left Header: Logo, Mode Badge, Tier Badge
+        # Left Header: Brand mark + Tier pill
         left_hdr = tk.Frame(self.header_frame, bg=COLOR_CONTAINER)
         left_hdr.pack(side="left")
 
         self.title_lbl = tk.Label(
-            left_hdr, text="WAT-THIS", font=FONT_MICRO,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_DIM
+            left_hdr, text="● WAT-THIS", font=FONT_MICRO,
+            bg=COLOR_CONTAINER, fg="#38BDF8"
         )
         self.title_lbl.pack(side="left", padx=(0, 6))
 
-        # Mode Badge
-        self.mode_badge_lbl = tk.Label(
-            left_hdr, text="⚡ EXPLAIN", font=FONT_MICRO,
-            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=1, relief="solid",
-            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=6, pady=2
-        )
-        self.mode_badge_lbl.pack(side="left", padx=3)
-
-        # Tier Badge
         tier_name = self.tier_spec.get("name", "NORMAL").upper()
         tier_ram = self.tier_spec.get("ram_target", "")
         self.tier_badge_lbl = tk.Label(
             left_hdr, text=f" {tier_name} • {tier_ram} ", font=FONT_MICRO,
             bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
-            highlightbackground=COLOR_BORDER, highlightthickness=1, padx=6, pady=2
+            highlightbackground=COLOR_BORDER, highlightthickness=1, padx=9, pady=3
         )
         self.tier_badge_lbl.pack(side="left", padx=3)
 
-        # Right Header: Copy Button, TTS Audio Button, Dismiss Hint
+        # Right Header: Pin toggle button + Close button
         right_hdr = tk.Frame(self.header_frame, bg=COLOR_CONTAINER)
         right_hdr.pack(side="right")
 
-        # Copy Action Button
-        self.copy_btn = tk.Label(
-            right_hdr, text="📋 Copy", font=FONT_SMALL,
+        self.pin_btn = tk.Label(
+            right_hdr, text="📌 Pin", font=FONT_MICRO,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, padx=10, pady=3,
+            bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1,
+            cursor="hand2"
+        )
+        self.pin_btn.pack(side="left", padx=(0, 6))
+        self.pin_btn.bind("<Button-1>", lambda e: self.toggle_pin())
+        self.pin_btn.bind("<Enter>", lambda e: self.pin_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN) if not self.is_pinned else None)
+        self.pin_btn.bind("<Leave>", lambda e: self.pin_btn.configure(
+            bg=COLOR_GREEN_BG if self.is_pinned else COLOR_BG_DARK,
+            fg=COLOR_GREEN if self.is_pinned else COLOR_TEXT_DIM,
+            highlightbackground=COLOR_GREEN if self.is_pinned else COLOR_BORDER
+        ))
+
+        self.dismiss_btn = tk.Label(
+            right_hdr, text=" ✕ ", font=FONT_MICRO,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, padx=8, pady=3,
+            bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1,
+            cursor="hand2"
+        )
+        self.dismiss_btn.pack(side="right")
+        self.dismiss_btn.bind("<Button-1>", lambda e: self.hide_hud())
+        self.dismiss_btn.bind("<Enter>", lambda e: self.dismiss_btn.configure(bg="#2E1B20", fg=COLOR_RED, highlightbackground=COLOR_RED))
+        self.dismiss_btn.bind("<Leave>", lambda e: self.dismiss_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, highlightbackground=COLOR_BORDER))
+
+        # Draggable header bindings
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+        self.header_frame.bind("<Button-1>", self._on_drag_start)
+        self.header_frame.bind("<B1-Motion>", self._on_drag_motion)
+        self.title_lbl.bind("<Button-1>", self._on_drag_start)
+        self.title_lbl.bind("<B1-Motion>", self._on_drag_motion)
+
+        # -----------------------------------------------------------------------
+        # VIEW 1: MINIMALIST ACTION PICKER (COMMAND PALETTE)
+        # -----------------------------------------------------------------------
+        self.picker_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
+
+        # Snippet preview card
+        self.picker_snippet_card = tk.Frame(
+            self.picker_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1
+        )
+        self.picker_snippet_card.pack(fill="x", padx=14, pady=(2, 6))
+
+        self.picker_snippet_lbl = tk.Label(
+            self.picker_snippet_card, text="", font=FONT_SMALL,
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_SEC, justify="left", anchor="w"
+        )
+        self.picker_snippet_lbl.pack(fill="x", padx=10, pady=5)
+
+        # Prompt entry (shown when no snippet is selected)
+        self.picker_entry_frame = tk.Frame(self.picker_frame, bg=COLOR_CONTAINER)
+        self.picker_entry = tk.Entry(
+            self.picker_entry_frame, font=FONT_BODY,
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
+            bd=0, highlightbackground=COLOR_BORDER, highlightthickness=1, relief="flat"
+        )
+        self.picker_entry.pack(fill="x", padx=14, pady=(0, 6), ipady=4)
+        self.picker_entry.bind("<Return>", lambda e: self._on_picker_entry_submit())
+        self.picker_entry.bind("<Escape>", lambda e: self.hide_hud())
+
+        # Action rows container
+        self.action_list_frame = tk.Frame(self.picker_frame, bg=COLOR_CONTAINER)
+        self.action_list_frame.pack(fill="both", expand=True, padx=0, pady=(0, 4))
+
+        # Dedicated Function Summary & Capabilities Preview Card (Dynamic Hover / Arrow Focus)
+        self.action_preview_card = tk.Frame(
+            self.picker_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1
+        )
+        self.action_preview_card.pack(fill="x", padx=14, pady=(2, 6))
+
+        preview_hdr = tk.Frame(self.action_preview_card, bg=COLOR_SURFACE_ELEV)
+        preview_hdr.pack(fill="x", padx=10, pady=(5, 2))
+
+        self.preview_title_lbl = tk.Label(
+            preview_hdr, text="[1] ⚡ Explain & Teach", font=FONT_SECTION,
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN
+        )
+        self.preview_title_lbl.pack(side="left")
+
+        self.preview_tier_pill = tk.Label(
+            preview_hdr, text=" LITE+ ", font=FONT_MICRO,
+            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=1, relief="solid",
+            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=4, pady=1
+        )
+        self.preview_tier_pill.pack(side="right")
+
+        self.preview_desc_lbl = tk.Label(
+            self.action_preview_card,
+            text="Deconstructs complex concepts and logic into plain English with intuitive everyday analogies.",
+            font=FONT_SMALL, bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_SEC,
+            wraplength=460, justify="left", anchor="w"
+        )
+        self.preview_desc_lbl.pack(fill="x", padx=10, pady=(0, 2))
+
+        self.preview_tags_lbl = tk.Label(
+            self.action_preview_card,
+            text="⚡ Fast • Everyday Analogy • Web Enrich",
+            font=FONT_MICRO, bg=COLOR_SURFACE_ELEV, fg=COLOR_BLUE,
+            anchor="w"
+        )
+        self.preview_tags_lbl.pack(fill="x", padx=10, pady=(0, 5))
+
+        # Bottom Hint Bar
+        self.picker_hint_lbl = tk.Label(
+            self.picker_frame, text="⌨  Press 1–9, arrow keys, or click to run  •  Hover for info  •  Esc to close",
+            font=FONT_MICRO, bg=COLOR_CONTAINER, fg=COLOR_TEXT_DIM, pady=4
+        )
+        self.picker_hint_lbl.pack(fill="x", padx=14, pady=(0, 4))
+
+        # -----------------------------------------------------------------------
+        # VIEW 2: STREAMING RESULT VIEW
+        # -----------------------------------------------------------------------
+        self.stream_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
+
+        # Sub-header bar inside stream frame (Back button, Mode badge, Action buttons)
+        self.stream_subhdr = tk.Frame(self.stream_frame, bg=COLOR_CONTAINER)
+        self.stream_subhdr.pack(fill="x", padx=16, pady=(0, 6))
+
+        # Left sub-header: Back button + Mode badge
+        stream_left = tk.Frame(self.stream_subhdr, bg=COLOR_CONTAINER)
+        stream_left.pack(side="left")
+
+        self.back_btn = tk.Label(
+            stream_left, text="← Options", font=FONT_MICRO,
             bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
             highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=8, pady=2
+            cursor="hand2", padx=9, pady=3
+        )
+        self.back_btn.pack(side="left", padx=(0, 6))
+        self.back_btn.bind("<Button-1>", lambda e: self.show_action_picker())
+        self.back_btn.bind("<Enter>", lambda e: self.back_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
+        self.back_btn.bind("<Leave>", lambda e: self.back_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC))
+
+        self.stream_mode_badge = tk.Label(
+            stream_left, text="⚡ EXPLAIN", font=FONT_MICRO,
+            bg=COLOR_BLUE_BG, fg=COLOR_BLUE, bd=1, relief="solid",
+            highlightbackground=COLOR_BLUE, highlightthickness=1, padx=9, pady=3
+        )
+        self.stream_mode_badge.pack(side="left")
+
+        # Right sub-header: Patch, Copy, Guide, Listen
+        stream_right = tk.Frame(self.stream_subhdr, bg=COLOR_CONTAINER)
+        stream_right.pack(side="right")
+
+        # Patch Button (Fix mode)
+        self.patch_btn = tk.Label(
+            stream_right, text="⚡ Patch", font=FONT_SMALL,
+            bg=COLOR_BG_DARK, fg=COLOR_AMBER, bd=1, relief="solid",
+            highlightbackground=COLOR_AMBER, highlightthickness=1,
+            cursor="hand2", padx=10, pady=3
+        )
+        self.patch_btn.bind("<Button-1>", lambda e: self.replace_selection_in_editor())
+        self.patch_btn.bind("<Enter>", lambda e: self.patch_btn.configure(bg=COLOR_SURFACE_ELEV))
+        self.patch_btn.bind("<Leave>", lambda e: self.patch_btn.configure(bg=COLOR_BG_DARK))
+
+        # Copy Button
+        self.copy_btn = tk.Label(
+            stream_right, text="📋 Copy", font=FONT_SMALL,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1,
+            cursor="hand2", padx=10, pady=3
         )
         self.copy_btn.pack(side="left", padx=(0, 6))
         self.copy_btn.bind("<Button-1>", lambda e: self.copy_to_clipboard())
         self.copy_btn.bind("<Enter>", lambda e: self.copy_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
         self.copy_btn.bind("<Leave>", lambda e: self.copy_btn.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC))
 
-        # TTS Audio Button
+        # Guide / On-Screen Annotations Button
+        self.guide_btn = tk.Label(
+            stream_right, text="📍 Guide", font=FONT_SMALL,
+            bg=COLOR_BG_DARK, fg=COLOR_TEXT_SEC, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1,
+            cursor="hand2", padx=10, pady=3
+        )
+        self.guide_btn.pack(side="left", padx=(0, 6))
+        self.guide_btn.bind("<Button-1>", lambda e: self.toggle_annotation_guide())
+        self.guide_btn.bind("<Enter>", lambda e: self.guide_btn.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
+        self.guide_btn.bind("<Leave>", lambda e: self.guide_btn.configure(
+            bg=COLOR_BG_DARK,
+            fg=COLOR_GREEN if getattr(getattr(self, "annotation_overlay", None), "is_visible", False) else COLOR_TEXT_SEC
+        ))
+
+        # TTS Listen Button
         self.tts_btn = tk.Label(
-            right_hdr, text="🔊 Listen", font=FONT_SMALL,
+            stream_right, text="🔊 Listen", font=FONT_SMALL,
             bg=COLOR_BG_DARK,
             fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
             bd=1, relief="solid",
             highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2", padx=8, pady=2
+            cursor="hand2", padx=10, pady=3
         )
-        self.tts_btn.pack(side="left", padx=(0, 6))
+        self.tts_btn.pack(side="left")
         self.tts_btn.bind("<Button-1>", lambda e: self.toggle_speech())
         self.tts_btn.bind("<Enter>", lambda e: self.tts_btn.configure(bg=COLOR_SURFACE_ELEV) if config_manager.is_tts_allowed(self.tier_key) else None)
         self.tts_btn.bind("<Leave>", lambda e: self.tts_btn.configure(bg=COLOR_BG_DARK) if config_manager.is_tts_allowed(self.tier_key) else None)
 
-        self.hint_lbl = tk.Label(
-            right_hdr, text="✕ Esc", font=FONT_MICRO,
-            bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM, padx=6, pady=2,
-            bd=1, relief="solid", highlightbackground=COLOR_BORDER, highlightthickness=1,
-            cursor="hand2"
-        )
-        self.hint_lbl.pack(side="left")
-        self.hint_lbl.bind("<Button-1>", lambda e: self.hide_hud())
-        self.hint_lbl.bind("<Enter>", lambda e: self.hint_lbl.configure(bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN))
-        self.hint_lbl.bind("<Leave>", lambda e: self.hint_lbl.configure(bg=COLOR_BG_DARK, fg=COLOR_TEXT_DIM))
-
-        # Activity & Progress Strip (Canvas 2px height)
+        # Activity & Progress Strip
         self.activity_canvas = tk.Canvas(
-            self.container, height=2, bg=COLOR_CONTAINER, highlightthickness=0, bd=0
+            self.stream_frame, height=2, bg=COLOR_CONTAINER, highlightthickness=0, bd=0
         )
 
-        # Status Pill Frame (shown during thinking)
-        self.status_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
+        # Elevated Obsidian Content Card
+        self.content_card = tk.Frame(
+            self.stream_frame, bg=COLOR_SURFACE_ELEV, bd=1, relief="solid",
+            highlightbackground=COLOR_BORDER, highlightthickness=1
+        )
+        self.content_card.pack(fill="both", expand=True, padx=14, pady=(2, 8))
+        self.content_card.bind("<Motion>", self.on_hud_mouse_activity)
+
+        # Status Pill Frame
+        self.status_frame = tk.Frame(self.content_card, bg=COLOR_SURFACE_ELEV)
         self.status_pill = tk.Label(
             self.status_frame, text="⚡ Initializing copilot...", font=FONT_SMALL,
-            bg=COLOR_BG_DARK, fg=COLOR_BLUE, padx=8, pady=3, bd=1, relief="solid",
+            bg=COLOR_BG_DARK, fg=COLOR_BLUE, padx=10, pady=3, bd=1, relief="solid",
             highlightbackground=COLOR_BLUE, highlightthickness=1
         )
-        self.status_pill.pack(anchor="w", padx=16, pady=(4, 2))
+        self.status_pill.pack(anchor="w", padx=14, pady=(8, 2))
 
         # Content Text Area
         self.content_lbl = tk.Label(
-            self.container, text="", font=FONT_BODY,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, wraplength=480,
+            self.content_card, text="", font=FONT_BODY,
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_MAIN, wraplength=470,
             justify="left", anchor="w"
         )
-        self.content_lbl.pack(fill="both", expand=True, padx=16, pady=(4, 8))
+        self.content_lbl.pack(fill="both", expand=True, padx=14, pady=(6, 10))
+        self.content_lbl.bind("<Motion>", self.on_hud_mouse_activity)
 
-        # Metadata Footer Row (Completed stats)
-        self.meta_frame = tk.Frame(self.container, bg=COLOR_CONTAINER)
+        # Metadata Footer Row
+        self.meta_frame = tk.Frame(self.content_card, bg=COLOR_SURFACE_ELEV)
         self.meta_stats_lbl = tk.Label(
             self.meta_frame, text="", font=FONT_MICRO,
-            bg=COLOR_CONTAINER, fg=COLOR_TEXT_DIM
+            bg=COLOR_SURFACE_ELEV, fg=COLOR_TEXT_DIM
         )
-        self.meta_stats_lbl.pack(side="left", padx=16, pady=(0, 4))
+        self.meta_stats_lbl.pack(side="left", padx=14, pady=(0, 6))
 
         # Follow-Up Expand Frame
         self.follow_up_frame = tk.Frame(
-            self.container, bg=COLOR_BG_DARK, bd=1, relief="solid",
+            self.stream_frame, bg=COLOR_BG_DARK, bd=1, relief="solid",
             highlightbackground=COLOR_BORDER, highlightthickness=1
         )
         self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
@@ -493,9 +796,8 @@ class WatThisApp:
         self.expand_prompt_lbl.pack(fill="x")
         self.expand_prompt_lbl.bind("<Button-1>", lambda e: self.toggle_follow_up(True))
 
-        # Input Box for Chat Follow-up (hidden until expanded)
+        # Input Box for Chat Follow-up
         self.input_box_frame = tk.Frame(self.follow_up_frame, bg=COLOR_BG_DARK)
-
         self.chat_entry = tk.Entry(
             self.input_box_frame, font=FONT_BODY,
             bg=COLOR_CONTAINER, fg=COLOR_TEXT_MAIN, insertbackground=COLOR_BLUE,
@@ -512,7 +814,10 @@ class WatThisApp:
         )
         self.chat_send_btn.pack(side="right", padx=(0, 6), pady=6)
 
-        self.fixed_width = 520
+        # Default state is picker view
+        self.picker_frame.pack(fill="both", expand=True)
+
+        self.fixed_width = 500
 
         # Initialize HWND and apply native acrylic blur and drop shadow
         self.hud.update_idletasks()
@@ -526,21 +831,33 @@ class WatThisApp:
 
     def apply_tier_visual_mode(self):
         """
-        Dynamically applies hardware-accelerated Acrylic blur, rounded corners,
-        and transparency for Normal and Extreme tiers, while keeping Lite tier
-        on an ultra-lightweight solid profile.
+        Dynamically configures minimalist theme and performance per active tier:
+        - Lite (< 4 GB): Solid matte #0D1117, zero blur overhead for 60fps, 460px width.
+        - Normal (6-10 GB): Hardware Acrylic blur, 0.92 alpha, 500px width.
+        - Extreme (12-16 GB): Frosted Glass acrylic, violet aura, 560px width.
         """
-        is_normal_or_above = self.tier_key in ("normal", "extreme")
         blur_pref = self.config.get("blur_enabled", True)
 
-        if is_normal_or_above and blur_pref:
-            apply_window_blur_and_shadow(self.hud_hwnd, enable=True)
-            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.93))
-            self.container.configure(highlightbackground=COLOR_BORDER)
-        else:
-            apply_window_blur_and_shadow(self.hud_hwnd, enable=False)
+        if self.tier_key == "lite":
+            self.fixed_width = 460
             self.active_hud_alpha = 0.98
-            self.container.configure(highlightbackground=COLOR_BORDER)
+            apply_window_blur_and_shadow(self.hud_hwnd, enable=False)
+            self.container.configure(bg="#0D1117", highlightbackground="#21262D")
+            self.tier_badge_lbl.configure(text=" LITE • < 4 GB ", fg="#8B949E", bg="#161B22")
+        elif self.tier_key == "normal":
+            self.fixed_width = 500
+            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.92))
+            if blur_pref:
+                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA121722)
+            self.container.configure(bg=COLOR_CONTAINER, highlightbackground="#30363D")
+            self.tier_badge_lbl.configure(text=" NORMAL • 6 – 10 GB ", fg=COLOR_BLUE, bg="#0F264A")
+        else:  # extreme
+            self.fixed_width = 560
+            self.active_hud_alpha = float(self.config.get("hud_opacity", 0.92))
+            if blur_pref:
+                apply_window_blur_and_shadow(self.hud_hwnd, enable=True, gradient_color=0xAA151128)
+            self.container.configure(bg=COLOR_CONTAINER, highlightbackground="#4C3A6E")
+            self.tier_badge_lbl.configure(text=" EXTREME • 12 – 16 GB ", fg=COLOR_PURPLE, bg="#251B33")
 
     def copy_to_clipboard(self):
         """Copies accumulated explanation to system clipboard with visual feedback."""
@@ -560,11 +877,179 @@ class WatThisApp:
         except Exception:
             pass
 
+    # ---------------------------------------------------------------------------
+    # PIN & INTELLIGENT AUTO-DISMISS ENGINE (Zero random disappearances)
+    # ---------------------------------------------------------------------------
+    def toggle_pin(self):
+        """Toggles lock-on-screen pin mode so HUD stays indefinitely."""
+        self.is_pinned = not self.is_pinned
+        if self.is_pinned:
+            self.pin_btn.configure(
+                text="📌 Pinned",
+                bg=COLOR_GREEN_BG,
+                fg=COLOR_GREEN,
+                highlightbackground=COLOR_GREEN
+            )
+            # Cancel any pending auto-dismiss timer
+            if self.linger_timer_id:
+                try:
+                    self.root.after_cancel(self.linger_timer_id)
+                except Exception:
+                    pass
+                self.linger_timer_id = None
+        else:
+            self.pin_btn.configure(
+                text="📌 Pin",
+                bg=COLOR_BG_DARK,
+                fg=COLOR_TEXT_DIM,
+                highlightbackground=COLOR_BORDER
+            )
+            # Only start dismiss countdown if not generating and streamer is finished
+            if self.hud_visible and not self.is_thinking and not self.is_streaming and self.hud_state == "streamer" and not self.chat_expanded:
+                self.schedule_auto_dismiss()
+
+    def is_mouse_over_hud(self):
+        """
+        Robust screen-coordinate hover detection with a +12px margin of forgiveness.
+        Prevents flickering and premature dismissal when traversing internal child widgets.
+        """
+        if not getattr(self, "hud_visible", False) or not getattr(self, "hud", None):
+            return False
+        try:
+            px = self.hud.winfo_pointerx()
+            py = self.hud.winfo_pointery()
+            hx = self.hud.winfo_rootx()
+            hy = self.hud.winfo_rooty()
+            hw = self.hud.winfo_width()
+            hh = self.hud.winfo_height()
+            margin = 12
+            return (hx - margin) <= px <= (hx + hw + margin) and (hy - margin) <= py <= (hy + hh + margin)
+        except Exception:
+            return False
+
+    def on_hud_mouse_activity(self, event=None):
+        """Refreshes active mouse timestamp and cancels pending dismiss while user interacts."""
+        self.last_mouse_activity_time = time.time()
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+
+    def on_hud_mouse_leave(self, event=None):
+        """Called when mouse exits HUD; verifies true departure before starting linger countdown."""
+        if self.is_mouse_over_hud():
+            return
+        if not self.is_pinned and not self.is_thinking and not self.is_streaming and self.hud_state == "streamer" and not self.chat_expanded:
+            self.schedule_auto_dismiss()
+
+    def schedule_auto_dismiss(self, delay_ms=None):
+        """Schedules auto-dismiss verification. Never closes if pinned, generating, hovering, or in picker."""
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+
+        # Guard conditions: HUD must stay active
+        if self.is_pinned or self.is_thinking or self.is_streaming or self.hud_state == "picker" or self.chat_expanded:
+            return
+
+        wait_ms = delay_ms if delay_ms is not None else self.config.get("linger_duration_ms", 14000)
+        self.linger_timer_id = self.root.after(wait_ms, self._check_auto_dismiss)
+
+    def _check_auto_dismiss(self):
+        """Double-checks all conditions before finally hiding HUD."""
+        self.linger_timer_id = None
+        if not getattr(self, "hud_visible", False):
+            return
+
+        # 1. Pinned, Generating, in Follow-up Chat, or in Action Picker? Stay open!
+        if self.is_pinned or self.is_thinking or self.is_streaming or self.chat_expanded or self.hud_state == "picker":
+            return
+
+        # 2. Mouse currently hovered over HUD? Stay open!
+        if self.is_mouse_over_hud():
+            # Recheck in 3 seconds as long as mouse stays hovered
+            self.linger_timer_id = self.root.after(3000, self._check_auto_dismiss)
+            return
+
+        # 3. Was there recent mouse activity within the linger window?
+        now = time.time()
+        linger_s = self.config.get("linger_duration_ms", 14000) / 1000.0
+        elapsed_since_activity = now - self.last_mouse_activity_time
+        if elapsed_since_activity < linger_s:
+            rem_ms = max(1500, int((linger_s - elapsed_since_activity) * 1000))
+            self.linger_timer_id = self.root.after(rem_ms, self._check_auto_dismiss)
+            return
+
+        # Safe to dismiss now
+        self.hide_hud()
+
+    def _on_drag_start(self, event):
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+
+    def _on_drag_motion(self, event):
+        try:
+            x = self.hud.winfo_x() + (event.x - self._drag_start_x)
+            y = self.hud.winfo_y() + (event.y - self._drag_start_y)
+            self.hud.geometry(f"+{x}+{y}")
+            self.anchor_x = x
+            self.anchor_y = y
+        except Exception:
+            pass
+
+    def replace_selection_in_editor(self):
+        """One-click code patch: extracts clean code, copies to clipboard, and simulates paste back into editor."""
+        if not self.accumulated_text:
+            return
+        clean_code = self.accumulated_text.strip()
+        if "```" in clean_code:
+            lines = clean_code.splitlines()
+            code_lines = []
+            inside_block = False
+            for line in lines:
+                if line.strip().startswith("```"):
+                    inside_block = not inside_block
+                    continue
+                if inside_block:
+                    code_lines.append(line)
+            if code_lines:
+                clean_code = "\n".join(code_lines).strip()
+
+        try:
+            pyperclip.copy(clean_code)
+            self.patch_btn.configure(text="✓ Applied!", fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
+            self.root.after(1400, lambda: self.patch_btn.configure(text="⚡ Patch", fg=COLOR_AMBER, highlightbackground=COLOR_AMBER))
+            self.simulate_paste()
+        except Exception as e:
+            print(f"[WARN] replace_selection_in_editor error: {e}")
+
+    def simulate_paste(self):
+        try:
+            user32 = ctypes.windll.user32
+            VK_CONTROL = 0x11
+            VK_MENU = 0x12
+            KEYEVENTF_KEYUP = 0x0002
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.015)
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(ord('V'), 0, 0, 0)
+            time.sleep(0.010)
+            user32.keybd_event(ord('V'), 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+        except Exception:
+            pass
+
     def toggle_speech(self):
         """Toggles offline speech playback with immediate button feedback."""
         if not config_manager.is_tts_allowed(self.tier_key):
-            self.hint_lbl.configure(text="TTS locked in Lite", fg=COLOR_RED)
-            self.root.after(2500, lambda: self.hint_lbl.configure(text="Esc", fg=COLOR_TEXT_DIM))
+            self.picker_hint_lbl.configure(text="TTS audio is locked in Lite tier.", fg=COLOR_RED)
+            self.root.after(2500, lambda: self.picker_hint_lbl.configure(text="⌨  Press 1–9, arrow keys, or click to run  •  Esc to close", fg=COLOR_TEXT_DIM))
             return
 
         if tts_helper.is_speaking():
@@ -638,7 +1123,7 @@ class WatThisApp:
             if getattr(self, "used_web_search", False):
                 parts.append("🌐 Web Enriched")
             if self.chat_turns > 0:
-                max_turns = self.tier_spec.get("max_chat_turns", 2)
+                max_turns = self.tier_spec.get("max_chat_turns", 3)
                 parts.append(f"💬 Turn {self.chat_turns}/{max_turns}")
 
             meta_text = "   •   ".join(parts)
@@ -653,22 +1138,14 @@ class WatThisApp:
         except Exception:
             pass
 
-        modes = config_manager.get_modes()
-        for mode_key, mode_info in modes.items():
-            hk = mode_info.get("hotkey")
-            if hk:
-                try:
-                    keyboard.add_hotkey(hk, lambda m=mode_key: self.on_hotkey_triggered(m))
-                except Exception as e:
-                    print(f"[WARN] Failed to bind hotkey '{hk}' for {mode_key}: {e}")
-
-        # Bind TTS hotkey
-        tts_hk = self.config.get("tts_hotkey", "ctrl+alt+s")
-        if tts_hk:
+        # Universal Action Palette hotkey: Ctrl + Alt + Space
+        hk = self.config.get("hotkey", "ctrl+alt+space")
+        if hk:
             try:
-                keyboard.add_hotkey(tts_hk, self.on_tts_triggered)
-            except Exception:
-                pass
+                keyboard.add_hotkey(hk, lambda: self.on_hotkey_triggered(None))
+                print(f"[HOTKEY] Keyboard hotkey registered: {hk}")
+            except Exception as e:
+                print(f"[WARN] Failed to bind hotkey '{hk}': {e}")
 
     def process_gui_queue(self):
         try:
@@ -693,7 +1170,7 @@ class WatThisApp:
         except Exception:
             pass
 
-        # Dynamically sync TTS button with background speech synthesizer state
+        # Sync TTS button state
         if getattr(self, "tts_btn", None) and config_manager.is_tts_allowed(self.tier_key):
             try:
                 speaking = tts_helper.is_speaking()
@@ -730,7 +1207,6 @@ class WatThisApp:
                 ("lPrivate", ctypes.c_ulong),
             ]
         msg = MSG()
-        # Initialize thread message queue
         user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
 
         for hkid, (mode_name, mods, vk) in WIN32_HOTKEYS.items():
@@ -745,11 +1221,7 @@ class WatThisApp:
                 if msg.message == 0x0312:  # WM_HOTKEY
                     hkid = msg.wParam
                     if hkid in WIN32_HOTKEYS:
-                        mode_name = WIN32_HOTKEYS[hkid][0]
-                        if mode_name == "tts":
-                            self.event_queue.put(("tts", None))
-                        else:
-                            self.event_queue.put(("hotkey", mode_name))
+                        self.event_queue.put(("hotkey", None))
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
             else:
@@ -758,26 +1230,17 @@ class WatThisApp:
         for hkid in WIN32_HOTKEYS:
             user32.UnregisterHotKey(None, hkid)
 
-    def on_hotkey_triggered(self, mode="explain"):
+    def on_hotkey_triggered(self, mode=None):
         self.event_queue.put(("hotkey", mode))
 
     def on_tts_triggered(self):
         self.event_queue.put(("tts", None))
 
-    def speak_current_content(self):
-        if not config_manager.is_tts_allowed(self.tier_key):
-            self.hint_lbl.configure(text="TTS locked in Lite", fg=COLOR_RED)
-            self.root.after(2500, lambda: self.hint_lbl.configure(text="Esc to close", fg=COLOR_TEXT_DIM))
-            return
-
-        if self.accumulated_text:
-            tts_helper.speak_async(self.accumulated_text)
-
     def toggle_follow_up(self, expand=True):
         if not config_manager.is_interactive_chat_allowed(self.tier_key):
             return
 
-        max_turns = self.tier_spec.get("max_chat_turns", 2)
+        max_turns = self.tier_spec.get("max_chat_turns", 3)
         if self.chat_turns >= max_turns and self.tier_key != "extreme":
             self.expand_prompt_lbl.configure(
                 text=f"Turn limit ({max_turns}) reached for {self.tier_spec.get('name')} tier. Upgrade to Extreme for unlimited.",
@@ -796,6 +1259,7 @@ class WatThisApp:
             self.update_hud_geometry()
 
     def simulate_copy(self):
+        """Snappy 33ms virtual keystroke pulse to copy selected text without hotkey collisions."""
         try:
             user32 = ctypes.windll.user32
             VK_CONTROL = 0x11
@@ -803,37 +1267,38 @@ class WatThisApp:
             VK_SPACE   = 0x20
             KEYEVENTF_KEYUP = 0x0002
 
-            # Explicitly release any physical modifier keys that could corrupt Ctrl+C into Ctrl+Alt+C
+            # Swift release of modifier keys
             user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
             user32.keybd_event(VK_SPACE, 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(ord('F'), 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(ord('T'), 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(ord('D'), 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(ord('S'), 0, KEYEVENTF_KEYUP, 0)
             user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-            time.sleep(0.03)
+            time.sleep(0.008)
 
-            # Fire standard Ctrl + C
+            # Fire standard Ctrl + C (10ms down, 15ms settle: 33ms total latency)
             user32.keybd_event(VK_CONTROL, 0, 0, 0)
             user32.keybd_event(ord('C'), 0, 0, 0)
-            time.sleep(0.02)
+            time.sleep(0.010)
             user32.keybd_event(ord('C'), 0, KEYEVENTF_KEYUP, 0)
             user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-            time.sleep(0.06)
+            time.sleep(0.015)
         except Exception as e:
             print(f"[WARN] simulate_copy error: {e}")
 
-    def handle_hotkey(self, mode="explain"):
+    def handle_hotkey(self, mode=None):
+        """
+        Unified Hotkey Trigger (Ctrl + Alt + Space):
+        1. Captures cursor location and active monitor work area.
+        2. Fires ultra-fast 33ms copy pulse to grab highlighted text.
+        3. Opens the minimalist Action Palette directly at the cursor.
+        """
         now = time.time()
         if now - getattr(self, "last_trigger_time", 0) < 0.35:
             return
         self.last_trigger_time = now
 
         tts_helper.stop_speech()
-        self.current_mode = mode
         self.capture_mouse_position()
 
-        # Reload active tier & dynamically adapt visual theme (Frosted Glass / Blur / Opacity)
+        # Reload active tier & dynamically adapt visual theme
         self.tier_key, self.tier_spec = config_manager.get_active_tier()
         self.apply_tier_visual_mode()
 
@@ -849,44 +1314,10 @@ class WatThisApp:
             highlightbackground=COLOR_BORDER
         )
 
-        # ----------------------------------------------------
-        # TIER LEVEL FEATURE GATING ENFORCEMENT
-        # ----------------------------------------------------
-        if not config_manager.is_mode_allowed_in_tier(mode, self.tier_key):
-            mode_spec = config_manager.get_mode_spec(mode)
-            req_tier = mode_spec.get("required_tier", "normal").upper()
+        # Capture foreground window & screen context before our HUD raises
+        exclude_hwnds = [self.hud_hwnd] if self.hud_hwnd else []
+        self.screen_context = screen_context.get_screen_context_summary(exclude_hwnds=exclude_hwnds)
 
-            self.mode_badge_lbl.configure(
-                text=" 🔒 LOCKED ",
-                fg=COLOR_RED,
-                bg=COLOR_RED_BG,
-                highlightbackground=COLOR_RED
-            )
-            self.container.configure(highlightbackground=COLOR_RED)
-            self.content_lbl.configure(
-                text=(
-                    f"Feature '{mode_spec.get('name')}' is locked in the {tier_name} profile.\n\n"
-                    f"• Required Tier: {req_tier}\n"
-                    f"• Active Profile: {tier_name} ({tier_ram})\n\n"
-                    f"Open Settings to upgrade your model tier."
-                ),
-                fg=COLOR_RED
-            )
-            self.status_frame.pack_forget()
-            self.meta_frame.pack_forget()
-            self.stop_activity_animation()
-            self.follow_up_frame.pack_forget()
-            self.update_hud_geometry()
-            self.hud.deiconify()
-            self.hud.attributes("-alpha", self.active_hud_alpha)
-            self.hud_visible = True
-
-            if self.linger_timer_id:
-                self.root.after_cancel(self.linger_timer_id)
-            self.linger_timer_id = self.root.after(7000, self.hide_hud)
-            return
-
-        # Feature allowed: grab text and execute pipeline
         prev_clipboard = ""
         try:
             prev_clipboard = pyperclip.paste()
@@ -906,50 +1337,14 @@ class WatThisApp:
         except Exception as e:
             print(f"[RECOVERY] Clipboard read error: {e}")
 
-        mode_spec = config_manager.get_mode_spec(mode)
-        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
-        mode_icon = MODE_ICONS.get(mode, "⚡")
-
-        self.mode_badge_lbl.configure(
-            text=f" {mode_icon} {mode_spec.get('name', mode).upper()} ",
-            fg=mode_color,
-            bg=COLOR_BG_DARK,
-            highlightbackground=mode_color
-        )
-
-        # If user pressed hotkey with NO text highlighted and empty clipboard:
-        # Open HUD and provide interactive input prompt
-        if not text:
-            self.current_snippet = ""
-            self.conversation_history = []
-            self.chat_turns = 0
-            self.is_thinking = False
-            self.status_frame.pack_forget()
-            self.meta_frame.pack_forget()
-            self.stop_activity_animation()
-            self.container.configure(highlightbackground=mode_color)
-            self.content_lbl.configure(
-                text=(
-                    "⚡ Ambient Copilot is Ready & Listening\n\n"
-                    "• Highlight text in any application and press Ctrl+Alt+Space\n"
-                    "• Or type your question or code snippet in the box below:"
-                ),
-                fg=COLOR_TEXT_MAIN
-            )
-            self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
-            self.expand_prompt_lbl.pack_forget()
-            self.input_box_frame.pack(fill="x")
-            self.chat_expanded = True
-            self.update_hud_geometry()
-            self.hud.deiconify()
-            self.hud.attributes("-alpha", self.active_hud_alpha)
-            self.hud_visible = True
-            self.chat_entry.delete(0, tk.END)
-            self.chat_entry.focus_set()
-            if self.linger_timer_id:
-                self.root.after_cancel(self.linger_timer_id)
-            self.linger_timer_id = self.root.after(20000, self.hide_hud)
-            return
+        # If no text was highlighted, automatically leverage active window & visible screen text
+        if not text and self.screen_context.get("has_content"):
+            title = self.screen_context.get("title", "")
+            vis = self.screen_context.get("visible_text", "")
+            if vis:
+                text = f"[Screen: {title}]\n{vis}"
+            elif title:
+                text = f"[Active Window: {title}]"
 
         max_chars = self.config.get("max_clipboard_chars", 12000)
         if len(text) > max_chars:
@@ -958,17 +1353,388 @@ class WatThisApp:
         self.current_snippet = text
         self.conversation_history = []
         self.chat_turns = 0
-        self.start_time = time.time()
-        self.used_web_search = False
 
-        # Configure follow-up frame visibility based on tier
+        # If a specific mode was directly passed (e.g. from tray menu), run it; else open palette
+        if mode and config_manager.is_mode_allowed_in_tier(mode, self.tier_key):
+            self.select_action(mode)
+        else:
+            self.show_action_picker()
+
+    # ---------------------------------------------------------------------------
+    # 3. ACTION PICKER & COMMAND PALETTE WORKFLOW
+    # ---------------------------------------------------------------------------
+    def show_action_picker(self):
+        """Pops up the minimalist Action Palette HUD at the cursor."""
+        self.hud_state = "picker"
+        self.is_thinking = False
+        self.is_streaming = False
+        if self.active_abort_event:
+            self.active_abort_event.set()
+        self.stop_activity_animation()
+        tts_helper.stop_speech()
+
+        # Switch views
+        self.stream_frame.pack_forget()
+        self.picker_frame.pack(fill="both", expand=True)
+
+        # Snippet preview card vs Entry
+        if self.current_snippet and self.current_snippet.strip():
+            clean_snip = " ".join(self.current_snippet.strip().split())
+            if len(clean_snip) > 52:
+                clean_snip = clean_snip[:49] + "..."
+            char_count = len(self.current_snippet)
+            self.picker_snippet_lbl.configure(
+                text=f"“{clean_snip}” ({char_count} chars)",
+                fg=COLOR_TEXT_MAIN
+            )
+            self.picker_snippet_card.pack(fill="x", padx=14, pady=(2, 6))
+            self.picker_entry_frame.pack_forget()
+        else:
+            self.picker_snippet_card.pack_forget()
+            self.picker_entry_frame.pack(fill="x")
+            self.picker_entry.delete(0, tk.END)
+
+        self.render_action_buttons()
+        self.update_hud_geometry()
+        self._fade_in_hud()
+
+        if not self.current_snippet:
+            self.picker_entry.focus_set()
+        else:
+            self.hud.focus_set()
+
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+
+    def render_action_buttons(self):
+        """Renders the aesthetic, tier-gated action list with tactile keyboard badges and subtitles."""
+        for widget in self.action_list_frame.winfo_children():
+            widget.destroy()
+
+        self.current_actions = config_manager.get_tier_actions(self.tier_key)
+        self.action_rows = []
+        self.selected_action_idx = 0
+
+        for idx, act in enumerate(self.current_actions):
+            mode = act["mode"]
+            name = act["name"]
+            shortcut = act["shortcut"]
+            icon = act["icon"]
+            allowed = act["allowed"]
+            mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
+            summary_info = ACTION_SUMMARIES.get(mode, {})
+            tagline = summary_info.get("tagline", "Context-aware AI operation")
+
+            is_sel = (idx == 0 and allowed)
+
+            # Sleek Command Palette Card Row
+            row = tk.Frame(
+                self.action_list_frame,
+                bg=COLOR_SURFACE_ELEV if is_sel else (COLOR_CONTAINER if allowed else "#10141B"),
+                bd=1, relief="solid",
+                highlightbackground=mode_color if is_sel else (COLOR_BORDER if allowed else "#1C232E"),
+                highlightthickness=1,
+                cursor="hand2" if allowed else "arrow"
+            )
+            row.pack(fill="x", padx=14, pady=2, ipady=3)
+            row.bind("<Motion>", self.on_hud_mouse_activity)
+
+            # Physical Tactile Keycap Badge: [ 1 ], [ 2 ], etc.
+            badge_bg = "#1D2638" if is_sel else (COLOR_SURFACE_ELEV if allowed else "#141820")
+            badge_fg = mode_color if allowed else COLOR_TEXT_DIM
+            badge_lbl = tk.Label(
+                row, text=f" {shortcut} ", font=FONT_MICRO,
+                bg=badge_bg, fg=badge_fg, bd=1, relief="solid",
+                highlightbackground=mode_color if is_sel else ("#2E3B4E" if allowed else "#1F2530"),
+                highlightthickness=1, padx=6, pady=2
+            )
+            badge_lbl.pack(side="left", padx=(8, 8), pady=2)
+
+            # Rounded Icon Container with mode-tinted theme
+            icon_lbl = tk.Label(
+                row, text=f" {icon} ", font=FONT_BODY,
+                bg=row.cget("bg"), fg=mode_color if allowed else COLOR_TEXT_DIM
+            )
+            icon_lbl.pack(side="left", padx=(0, 4))
+
+            # Action Text Block (Title + Tagline Subtitle)
+            text_box = tk.Frame(row, bg=row.cget("bg"))
+            text_box.pack(side="left", fill="both", expand=True)
+
+            name_lbl = tk.Label(
+                text_box, text=name, font=FONT_BOLD if allowed else FONT_BODY,
+                bg=row.cget("bg"), fg=COLOR_TEXT_MAIN if allowed else COLOR_TEXT_DIM,
+                anchor="w"
+            )
+            name_lbl.pack(fill="x")
+
+            sub_lbl = tk.Label(
+                text_box, text=tagline, font=FONT_SUB,
+                bg=row.cget("bg"), fg=COLOR_TEXT_SEC if allowed else COLOR_TEXT_DIM,
+                anchor="w"
+            )
+            sub_lbl.pack(fill="x")
+
+            # Right Status Indicator or Lock Badge
+            if not allowed:
+                req = act.get("required_tier", "normal").capitalize()
+                lock_lbl = tk.Label(
+                    row, text=f"🔒 {req.upper()}", font=FONT_MICRO,
+                    bg="#241517", fg=COLOR_RED, padx=7, pady=2,
+                    bd=1, relief="solid", highlightbackground="#451A1F", highlightthickness=1
+                )
+                lock_lbl.pack(side="right", padx=(0, 8))
+                right_ind = lock_lbl
+            else:
+                status_ind = tk.Label(
+                    row, text="●" if is_sel else "›", font=FONT_MICRO,
+                    bg=row.cget("bg"), fg=mode_color if is_sel else COLOR_TEXT_DIM
+                )
+                status_ind.pack(side="right", padx=(0, 10))
+                right_ind = status_ind
+
+            def _enter(r=row, b=badge_lbl, c=mode_color, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act):
+                return lambda e: (
+                    r.configure(bg=COLOR_SURFACE_ELEV, highlightbackground=c),
+                    b.configure(bg="#1D2638", highlightbackground=c),
+                    tb.configure(bg=COLOR_SURFACE_ELEV),
+                    nl.configure(bg=COLOR_SURFACE_ELEV),
+                    sl.configure(bg=COLOR_SURFACE_ELEV),
+                    ri.configure(bg=COLOR_SURFACE_ELEV, text="●", fg=c) if (al and hasattr(ri, "configure") and ri.cget("text") != f"🔒 {a.get('required_tier', 'normal').upper()}") else None,
+                    self.update_action_summary(i)
+                )
+
+            def _leave(r=row, b=badge_lbl, i=idx, tb=text_box, nl=name_lbl, sl=sub_lbl, ri=right_ind, al=allowed, a=act):
+                is_curr_sel = (i == getattr(self, "selected_action_idx", 0))
+                return lambda e: (
+                    r.configure(
+                        bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B"),
+                        highlightbackground=COLOR_BLUE if is_curr_sel else (COLOR_BORDER if al else "#1C232E")
+                    ),
+                    b.configure(
+                        bg="#1D2638" if is_curr_sel else (COLOR_SURFACE_ELEV if al else "#141820"),
+                        highlightbackground=COLOR_BLUE if is_curr_sel else ("#2E3B4E" if al else "#1F2530")
+                    ),
+                    tb.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
+                    nl.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
+                    sl.configure(bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B")),
+                    ri.configure(
+                        bg=COLOR_SURFACE_ELEV if is_curr_sel else (COLOR_CONTAINER if al else "#10141B"),
+                        text="●" if is_curr_sel else "›",
+                        fg=COLOR_BLUE if is_curr_sel else COLOR_TEXT_DIM
+                    ) if (al and hasattr(ri, "configure") and ri.cget("text") != f"🔒 {a.get('required_tier', 'normal').upper()}") else None
+                )
+
+            interactive_widgets = [row, badge_lbl, icon_lbl, text_box, name_lbl, sub_lbl, right_ind]
+            for w in interactive_widgets:
+                if allowed:
+                    w.bind("<Button-1>", lambda e, m=mode: self.select_action(m))
+                else:
+                    w.bind("<Button-1>", lambda e, a=act: self.flash_locked_badge(a))
+                w.bind("<Enter>", _enter())
+                w.bind("<Leave>", _leave())
+                w.bind("<Motion>", self.on_hud_mouse_activity)
+
+            self.action_rows.append((row, badge_lbl, act, text_box, name_lbl, sub_lbl, right_ind))
+
+        # Initialize summary card for active selection
+        self.update_action_summary(self.selected_action_idx)
+
+    def update_action_summary(self, idx):
+        """Updates the dedicated Function Summary Card when hovering or navigating actions."""
+        if not self.current_actions or not (0 <= idx < len(self.current_actions)):
+            return
+        act = self.current_actions[idx]
+        mode = act.get("mode", "explain")
+        name = act.get("name", mode.capitalize())
+        shortcut = act.get("shortcut", str(idx + 1))
+        icon = act.get("icon", "⚡")
+        allowed = act.get("allowed", True)
+        req_tier = act.get("required_tier", "lite").upper()
+
+        summary_info = ACTION_SUMMARIES.get(mode, {
+            "summary": "Execute customized copilot analysis on target text.",
+            "badge": f"{req_tier}+",
+            "tags": "AI Action"
+        })
+
+        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
+        self.preview_title_lbl.configure(text=f"[{shortcut}] {icon} {name}", fg=mode_color)
+        self.preview_desc_lbl.configure(text=summary_info.get("summary", ""))
+        self.preview_tags_lbl.configure(text=summary_info.get("tags", ""))
+
+        if allowed:
+            self.preview_tier_pill.configure(
+                text=f" ✓ {summary_info.get('badge', req_tier)} ",
+                fg=COLOR_GREEN, bg=COLOR_GREEN_BG, highlightbackground=COLOR_GREEN
+            )
+        else:
+            self.preview_tier_pill.configure(
+                text=f" 🔒 {req_tier} ONLY ",
+                fg=COLOR_AMBER, bg="#2B1D0E", highlightbackground=COLOR_AMBER
+            )
+
+    def _on_hud_key(self, event):
+        """Unified keyboard handler for Action Palette and Streaming views."""
+        state = getattr(self, "hud_state", "picker")
+        if state == "picker":
+            # If user is actively typing in prompt entry
+            if self.hud.focus_get() == getattr(self, "picker_entry", None):
+                if event.keysym in ("Return", "KP_Enter"):
+                    self._on_picker_entry_submit()
+                    return "break"
+                elif event.keysym == "Escape":
+                    self.hide_hud()
+                    return "break"
+                return
+
+            keysym = event.keysym
+            char = event.char.lower() if event.char else ""
+
+            if keysym == "Escape":
+                self.hide_hud()
+                return "break"
+            elif keysym in ("Return", "KP_Enter"):
+                if self.current_actions and 0 <= self.selected_action_idx < len(self.current_actions):
+                    act = self.current_actions[self.selected_action_idx]
+                    if act.get("allowed"):
+                        self.select_action(act["mode"])
+                return "break"
+            elif keysym in ("Up", "Left"):
+                self._move_picker_selection(-1)
+                return "break"
+            elif keysym in ("Down", "Right"):
+                self._move_picker_selection(1)
+                return "break"
+
+            # Check direct 1..9, 0 or letter shortcuts
+            for act in getattr(self, "current_actions", []):
+                if char and char in (act.get("shortcut"), act.get("letter")):
+                    if act.get("allowed"):
+                        self.select_action(act["mode"])
+                    else:
+                        self.flash_locked_badge(act)
+                    return "break"
+
+        elif state == "streamer":
+            # If focused in chat entry, let it handle input
+            if self.hud.focus_get() == getattr(self, "chat_entry", None):
+                if event.keysym == "Escape":
+                    self.hide_hud()
+                    return "break"
+                return
+
+            if event.keysym == "Escape":
+                self.hide_hud()
+                return "break"
+            elif event.keysym == "BackSpace":
+                self.show_action_picker()
+                return "break"
+            elif event.keysym == "Tab":
+                self.toggle_follow_up(True)
+                return "break"
+
+    def _move_picker_selection(self, delta):
+        if not self.action_rows:
+            return
+
+        # Unhighlight current
+        curr_row, curr_badge, curr_act, curr_tb, curr_nl, curr_sl, curr_ri = self.action_rows[self.selected_action_idx]
+        curr_row.configure(bg=COLOR_CONTAINER, highlightbackground=COLOR_BORDER)
+        curr_badge.configure(bg=COLOR_SURFACE_ELEV, highlightbackground="#2E3B4E" if curr_act.get("allowed") else "#1F2530")
+        curr_tb.configure(bg=COLOR_CONTAINER)
+        curr_nl.configure(bg=COLOR_CONTAINER)
+        curr_sl.configure(bg=COLOR_CONTAINER)
+        if curr_act.get("allowed") and hasattr(curr_ri, "configure") and curr_ri.cget("text") != f"🔒 {curr_act.get('required_tier', 'normal').upper()}":
+            curr_ri.configure(bg=COLOR_CONTAINER, text="›", fg=COLOR_TEXT_DIM)
+
+        # Move to next allowed option
+        n = len(self.action_rows)
+        for _ in range(n):
+            self.selected_action_idx = (self.selected_action_idx + delta) % n
+            act = self.action_rows[self.selected_action_idx][2]
+            if act.get("allowed"):
+                break
+
+        # Highlight new
+        new_row, new_badge, act, new_tb, new_nl, new_sl, new_ri = self.action_rows[self.selected_action_idx]
+        mode_color = MODE_COLORS.get(act["mode"], COLOR_BLUE)
+        new_row.configure(bg=COLOR_SURFACE_ELEV, highlightbackground=mode_color)
+        new_badge.configure(bg="#1D2638", highlightbackground=mode_color)
+        new_tb.configure(bg=COLOR_SURFACE_ELEV)
+        new_nl.configure(bg=COLOR_SURFACE_ELEV)
+        new_sl.configure(bg=COLOR_SURFACE_ELEV)
+        if act.get("allowed") and hasattr(new_ri, "configure") and new_ri.cget("text") != f"🔒 {act.get('required_tier', 'normal').upper()}":
+            new_ri.configure(bg=COLOR_SURFACE_ELEV, text="●", fg=mode_color)
+        self.update_action_summary(self.selected_action_idx)
+
+    def _on_picker_entry_submit(self):
+        text = self.picker_entry.get().strip()
+        if text:
+            self.current_snippet = text
+            self.select_action("explain")
+
+    def flash_locked_badge(self, act):
+        req = act.get("required_tier", "normal").upper()
+        self.picker_hint_lbl.configure(
+            text=f"🔒 '{act.get('name')}' requires {req} tier. Open Settings to upgrade.",
+            fg=COLOR_RED
+        )
+        self.root.after(2600, lambda: self.picker_hint_lbl.configure(
+            text="⌨  Press 1–9, arrow keys, or click to run  •  Esc to close",
+            fg=COLOR_TEXT_DIM
+        ))
+
+    def select_action(self, mode):
+        """Transitions seamlessly from Action Palette to live Streaming Result view."""
+        self.hud_state = "streamer"
+        self.current_mode = mode
+
+        # If user typed into entry
+        if not self.current_snippet and self.picker_entry.winfo_viewable():
+            typed = self.picker_entry.get().strip()
+            if typed:
+                self.current_snippet = typed
+
+        # Switch to streamer view
+        self.picker_frame.pack_forget()
+        self.stream_frame.pack(fill="both", expand=True)
+
+        mode_spec = config_manager.get_mode_spec(mode)
+        mode_color = MODE_COLORS.get(mode, COLOR_BLUE)
+        mode_icon = MODE_ICONS.get(mode, "⚡")
+
+        self.stream_mode_badge.configure(
+            text=f" {mode_icon} {mode_spec.get('name', mode).upper()} ",
+            fg=mode_color,
+            bg=COLOR_BG_DARK,
+            highlightbackground=mode_color
+        )
+
+        # Patch button in Fix mode
+        if mode == "fix":
+            self.patch_btn.pack(side="left", padx=(0, 6), before=self.copy_btn)
+        else:
+            self.patch_btn.pack_forget()
+
+        # Reset streaming state
+        self.accumulated_text = ""
+        self.content_lbl.configure(text="", fg=COLOR_TEXT_MAIN)
+        self.meta_frame.pack_forget()
+        self.meta_stats_lbl.configure(text="")
+
+        # Configure follow-up chat frame based on active tier
         self.chat_expanded = False
         self.input_box_frame.pack_forget()
         self.chat_entry.delete(0, tk.END)
 
         if config_manager.is_interactive_chat_allowed(self.tier_key):
             self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
-            max_turns = self.tier_spec.get("max_chat_turns", 2)
+            max_turns = self.tier_spec.get("max_chat_turns", 3)
             self.expand_prompt_lbl.configure(
                 text=f"💬  Press Tab or click to ask follow-up ({max_turns} remaining)...",
                 fg=COLOR_TEXT_SEC,
@@ -978,59 +1744,81 @@ class WatThisApp:
         else:
             self.follow_up_frame.pack(fill="x", padx=14, pady=(0, 10))
             self.expand_prompt_lbl.configure(
-                text="🔒 Follow-up chat unlocked in Normal & Extreme tiers",
+                text="🔒 Follow-up chat unlocked in Normal (6–10 GB) & Extreme (12–16 GB)",
                 fg=COLOR_TEXT_DIM,
                 cursor="arrow"
             )
             self.expand_prompt_lbl.pack(fill="x")
 
-        # Cancel previous tasks
-        if self.active_abort_event:
-            self.active_abort_event.set()
-        self.active_abort_event = threading.Event()
-
-        if self.linger_timer_id:
-            self.root.after_cancel(self.linger_timer_id)
-            self.linger_timer_id = None
-
-        self.is_thinking = True
-        self.is_streaming = True
-        self.accumulated_text = ""
-        self.status_index = 0
-        target_model = self.tier_spec.get("model", "llama3.2:3b")
-
+        target_model = self.tier_spec.get("model", "llama3.1:8b")
         self.status_states = [
             f"⚡ Initializing {target_model}...",
             f"🔍 Analyzing snippet with {target_model}...",
             f"✦ Formulating concise insights...",
             f"✦ Streaming response..."
         ]
-
-        self.meta_frame.pack_forget()
-        self.meta_stats_lbl.configure(text="")
-        self.content_lbl.configure(text="", fg=COLOR_TEXT_MAIN)
-        self.status_pill.configure(
-            text=self.status_states[0],
-            fg=mode_color,
-            highlightbackground=mode_color
-        )
+        self.status_pill.configure(text=self.status_states[0], fg=mode_color, highlightbackground=mode_color)
         self.status_frame.pack(fill="x")
         self.container.configure(highlightbackground=mode_color)
+        if getattr(self, "content_card", None):
+            self.content_card.configure(highlightbackground=mode_color)
 
         self.update_hud_geometry()
-        self.hud.deiconify()
-        self.hud.attributes("-alpha", self.active_hud_alpha)
-        self.hud_visible = True
-
         self.start_activity_animation(mode_color)
         self.update_status_animation()
 
-        # Launch AI Pipeline
+        # Ensure no lingering dismiss timer is active while generating
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+
+        # Spotlight active target on screen with visual guide overlay
+        if getattr(self, "annotation_overlay", None):
+            action_title = mode_spec.get("name", mode).upper()
+            self.annotation_overlay.show_cursor_spotlight(
+                self.anchor_x, self.anchor_y,
+                title=f"{action_title}",
+                text="Inspecting active screen context and focal target",
+                step_num=1,
+                color=mode_color
+            )
+            if getattr(self, "guide_btn", None):
+                self.guide_btn.configure(fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
+
+        if self.active_abort_event:
+            self.active_abort_event.set()
+        self.active_abort_event = threading.Event()
+
+        self.is_thinking = True
+        self.is_streaming = True
+        self.start_time = time.time()
+
         threading.Thread(
             target=self.run_ai_pipeline,
-            args=(text, mode, self.active_abort_event),
+            args=(self.current_snippet, mode, self.active_abort_event),
             daemon=True
         ).start()
+
+    def toggle_annotation_guide(self):
+        """Toggles the transparent on-screen visual guide spotlight and step pin."""
+        if getattr(self, "annotation_overlay", None):
+            if self.annotation_overlay.is_visible:
+                self.annotation_overlay.hide()
+                self.guide_btn.configure(fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+            else:
+                mode_color = MODE_COLORS.get(self.current_mode, COLOR_BLUE)
+                mode_spec = config_manager.get_mode_spec(self.current_mode)
+                self.annotation_overlay.show_cursor_spotlight(
+                    self.anchor_x, self.anchor_y,
+                    title=f"{mode_spec.get('name', self.current_mode).upper()}",
+                    text=f"Active screen guidance: {self.tier_spec.get('name')} tier",
+                    step_num=1,
+                    color=mode_color
+                )
+                self.guide_btn.configure(fg=COLOR_GREEN, highlightbackground=COLOR_GREEN)
 
     def update_status_animation(self):
         try:
@@ -1059,39 +1847,45 @@ class WatThisApp:
             self.anchor_y = 300
 
     def update_hud_geometry(self):
+        """Calculates precise multi-monitor geometry, clamping inside work area and flipping when near edges."""
         try:
             if not self.root.winfo_exists() or not self.hud.winfo_exists():
                 return
 
             self.hud.update_idletasks()
 
-            win_w = getattr(self, "fixed_width", 520)
+            win_w = getattr(self, "fixed_width", 500)
             req_h = self.container.winfo_reqheight()
             win_h = max(110, req_h)
 
-            screen_w = self.root.winfo_screenwidth()
-            screen_h = self.root.winfo_screenheight()
+            cur_x = getattr(self, "anchor_x", 400)
+            cur_y = getattr(self, "anchor_y", 300)
+
+            # Accurate Multi-Monitor work area (excluding taskbar on monitor containing cursor)
+            m_left, m_top, m_right, m_bottom = get_monitor_work_area(cur_x, cur_y)
+            m_height = m_bottom - m_top
 
             # Dynamic max height limit leaving breathing room
-            max_h = screen_h - 100
+            max_h = max(200, m_height - 60)
             win_h = min(win_h, max_h)
 
-            target_x = getattr(self, "anchor_x", 400) + 20
-            target_y = getattr(self, "anchor_y", 300) + 20
+            # Position HUD adjacent to cursor with slight offset
+            target_x = cur_x + 18
+            target_y = cur_y + 18
 
-            # If expanding past right screen border, shift left
-            if target_x + win_w > screen_w - 15:
-                target_x = getattr(self, "anchor_x", 400) - win_w - 20
+            # If expanding past monitor right border, flip to left of cursor
+            if target_x + win_w > m_right - 12:
+                target_x = cur_x - win_w - 18
 
-            # If expanding past bottom screen border (taskbar area), flip upwards above cursor
-            if target_y + win_h > screen_h - 45:
-                target_y = getattr(self, "anchor_y", 300) - win_h - 20
+            # If expanding past monitor bottom border (or taskbar), flip above cursor
+            if target_y + win_h > m_bottom - 12:
+                target_y = cur_y - win_h - 18
 
-            # Hard clamp inside monitor bounds
-            target_x = max(15, min(target_x, screen_w - win_w - 15))
-            target_y = max(15, min(target_y, screen_h - win_h - 15))
+            # Clamp strictly inside current monitor work area
+            target_x = max(m_left + 12, min(target_x, m_right - win_w - 12))
+            target_y = max(m_top + 12, min(target_y, m_bottom - win_h - 12))
 
-            self.hud.geometry(f"{win_w}x{win_h}+{target_x}+{target_y}")
+            self.hud.geometry(f"{win_w}x{win_h}+{int(target_x)}+{int(target_y)}")
         except Exception:
             pass
 
@@ -1126,7 +1920,6 @@ class WatThisApp:
                 return
             self.is_streaming = False
             self.stop_activity_animation()
-            # Remove streaming cursor
             self.content_lbl.configure(text=self.accumulated_text)
             self.update_hud_geometry()
             elapsed = time.time() - self.start_time if self.start_time else None
@@ -1150,10 +1943,8 @@ class WatThisApp:
             if self.config.get("tts_enabled", False) and config_manager.is_tts_allowed(self.tier_key):
                 self.speak_current_content()
 
-            # Linger timer unless user is interacting with chat
-            if not self.chat_expanded:
-                linger_ms = self.config.get("linger_duration_ms", 14000)
-                self.linger_timer_id = self.root.after(linger_ms, self.hide_hud)
+            # Intelligent auto-dismiss scheduling (respects pin, hover, and interaction)
+            self.schedule_auto_dismiss()
         except Exception:
             pass
 
@@ -1162,12 +1953,21 @@ class WatThisApp:
         if not query or self.is_thinking:
             return
 
+        # Cancel any active auto-dismiss while thinking/chatting
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+
         self.chat_turns += 1
         self.chat_entry.delete(0, tk.END)
         self.is_thinking = True
+        self.is_streaming = True
         self.meta_frame.pack_forget()
 
-        target_model = self.tier_spec.get("model", "llama3.2:3b")
+        target_model = self.tier_spec.get("model", "llama3.1:8b")
         mode_color = MODE_COLORS.get(self.current_mode, COLOR_BLUE)
 
         self.status_states = [
@@ -1179,7 +1979,6 @@ class WatThisApp:
         self.status_frame.pack(fill="x")
         self.start_activity_animation(mode_color)
 
-        # If user opened HUD with empty clipboard and entered a question, execute as main query
         if not self.current_snippet:
             self.current_snippet = query
             self.start_time = time.time()
@@ -1211,8 +2010,8 @@ class WatThisApp:
         ).start()
 
     def run_chat_pipeline(self, messages, abort_event):
-        target_model = self.tier_spec.get("model", "llama3.2:3b")
-        keep_alive = self.tier_spec.get("keep_alive", "5m")
+        target_model = self.tier_spec.get("model", "llama3.1:8b")
+        keep_alive = self.tier_spec.get("keep_alive", "15m")
         ollama_url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
 
         # Auto-ensure Ollama daemon is running
@@ -1226,7 +2025,7 @@ class WatThisApp:
         # Model presence check & auto-fallback
         installed = config_manager.get_installed_ollama_models(ollama_url)
         if installed and target_model not in installed:
-            for cand in ["llama3.2:3b", "smollm2:1.7b", "llama3.2"]:
+            for cand in ["llama3.1:8b", "llama3.2:3b", "smollm2:1.7b", "llama3.2"]:
                 if cand in installed:
                     target_model = cand
                     break
@@ -1235,8 +2034,9 @@ class WatThisApp:
 
         options = {
             "num_predict": 400,
-            "temperature": 0.3,
-            "top_p": 0.9
+            "num_ctx": self.tier_spec.get("num_ctx", 2048),
+            "temperature": 0.25,
+            "top_p": 0.85
         }
 
         payload = {
@@ -1297,6 +2097,8 @@ class WatThisApp:
         self.stop_activity_animation(stream_color=MODE_COLORS.get(self.current_mode, COLOR_BLUE))
         self.status_frame.pack_forget()
         self.container.configure(highlightbackground=COLOR_BORDER)
+        if getattr(self, "content_card", None):
+            self.content_card.configure(highlightbackground=COLOR_BORDER)
         self.content_lbl.configure(fg=COLOR_TEXT_MAIN)
         self.accumulated_text = ""
         self.update_hud_geometry()
@@ -1307,43 +2109,170 @@ class WatThisApp:
         self.stop_activity_animation()
         self.status_frame.pack_forget()
         self.container.configure(highlightbackground=COLOR_RED)
+        if getattr(self, "content_card", None):
+            self.content_card.configure(highlightbackground=COLOR_RED)
         self.content_lbl.configure(text=message, fg=COLOR_RED)
         self.update_hud_geometry()
-        self.linger_timer_id = self.root.after(6000, self.hide_hud)
+        self.schedule_auto_dismiss(6000)
 
-    def hide_hud(self):
+    def _fade_in_hud(self):
+        """Smooth hardware-accelerated fade-in transition."""
+        if self._fade_timer_id:
+            try:
+                self.root.after_cancel(self._fade_timer_id)
+            except Exception:
+                pass
+            self._fade_timer_id = None
+
+        self.hud.deiconify()
+        self.hud_visible = True
+        try:
+            curr = float(self.hud.attributes("-alpha"))
+        except Exception:
+            curr = 0.0
+
+        if curr >= self.active_hud_alpha:
+            return
+
+        self._current_fade_alpha = max(0.0, curr)
+        self._step_fade_in()
+
+    def _step_fade_in(self):
+        if not self.is_alive or not getattr(self, "hud", None):
+            return
+        target = self.active_hud_alpha
+        step = max(0.12, (target - self._current_fade_alpha) * 0.45)
+        self._current_fade_alpha = min(target, self._current_fade_alpha + step)
+        try:
+            self.hud.attributes("-alpha", self._current_fade_alpha)
+        except Exception:
+            pass
+
+        if self._current_fade_alpha < target:
+            self._fade_timer_id = self.root.after(16, self._step_fade_in)
+        else:
+            self._fade_timer_id = None
+
+    def _fade_out_hud(self, callback=None):
+        """Smooth hardware-accelerated fade-out transition before hiding."""
+        if self._fade_timer_id:
+            try:
+                self.root.after_cancel(self._fade_timer_id)
+            except Exception:
+                pass
+            self._fade_timer_id = None
+
+        self._fade_callback = callback
+        try:
+            curr = float(self.hud.attributes("-alpha"))
+        except Exception:
+            curr = 0.0
+        self._current_fade_alpha = curr
+
+        if self._current_fade_alpha <= 0.02:
+            if self._fade_callback:
+                cb = self._fade_callback
+                self._fade_callback = None
+                cb()
+            return
+
+        self._step_fade_out()
+
+    def _step_fade_out(self):
+        if not self.is_alive or not getattr(self, "hud", None):
+            return
+        step = max(0.14, self._current_fade_alpha * 0.40)
+        self._current_fade_alpha = max(0.0, self._current_fade_alpha - step)
+        try:
+            self.hud.attributes("-alpha", self._current_fade_alpha)
+        except Exception:
+            pass
+
+        if self._current_fade_alpha > 0.01:
+            self._fade_timer_id = self.root.after(16, self._step_fade_out)
+        else:
+            self._fade_timer_id = None
+            if self._fade_callback:
+                cb = self._fade_callback
+                self._fade_callback = None
+                cb()
+
+    def _cleanup_hud_contents(self):
+        """Resets HUD window visibility and wipes transient streaming text."""
+        try:
+            self.hud.attributes("-alpha", 0.0)
+            self.hud.withdraw()
+        except Exception:
+            pass
+        if getattr(self, "content_lbl", None):
+            self.content_lbl.configure(text="")
+        self.accumulated_text = ""
+        if getattr(self, "status_frame", None):
+            self.status_frame.pack_forget()
+        if getattr(self, "meta_frame", None):
+            self.meta_frame.pack_forget()
+        if getattr(self, "tts_btn", None):
+            self.tts_btn.configure(
+                text="🔊 Listen",
+                fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
+                highlightbackground=COLOR_BORDER
+            )
+
+    def hide_hud(self, instant=False):
+        if self.linger_timer_id:
+            try:
+                self.root.after_cancel(self.linger_timer_id)
+            except Exception:
+                pass
+            self.linger_timer_id = None
+        self.is_pinned = False
+        if getattr(self, "pin_btn", None):
+            self.pin_btn.configure(
+                text="📌 Pin",
+                bg=COLOR_BG_DARK,
+                fg=COLOR_TEXT_DIM,
+                highlightbackground=COLOR_BORDER
+            )
         tts_helper.stop_speech()
         self.hud_visible = False
         self.is_thinking = False
         self.is_streaming = False
         self.chat_expanded = False
         self.stop_activity_animation()
-        self.hud.attributes("-alpha", 0.0)
-        self.hud.withdraw()
-        self.content_lbl.configure(text="")
-        self.accumulated_text = ""
-        self.status_frame.pack_forget()
-        self.meta_frame.pack_forget()
-        self.tts_btn.configure(
-            text="🔊 Listen",
-            fg=COLOR_TEXT_SEC if config_manager.is_tts_allowed(self.tier_key) else "#484F58",
-            highlightbackground=COLOR_BORDER
-        )
+        if getattr(self, "annotation_overlay", None):
+            self.annotation_overlay.hide()
+        if getattr(self, "guide_btn", None):
+            self.guide_btn.configure(fg=COLOR_TEXT_SEC, highlightbackground=COLOR_BORDER)
+        if getattr(self, "active_abort_event", None):
+            self.active_abort_event.set()
+        if getattr(self, "patch_btn", None):
+            self.patch_btn.pack_forget()
+
+        if instant:
+            if self._fade_timer_id:
+                try:
+                    self.root.after_cancel(self._fade_timer_id)
+                except Exception:
+                    pass
+                self._fade_timer_id = None
+            self._cleanup_hud_contents()
+        else:
+            self._fade_out_hud(callback=self._cleanup_hud_contents)
 
     def run_ai_pipeline(self, text, mode, abort_event):
         spec = self.tier_spec
-        target_model = spec.get("model", "llama3.2:3b")
+        target_model = spec.get("model", "llama3.1:8b")
         allow_web = config_manager.is_web_search_allowed(self.tier_key)
-        keep_alive = spec.get("keep_alive", "5m")
+        keep_alive = spec.get("keep_alive", "15m")
         base_prompt = spec.get("system_prompt", "Explain what this is clearly.")
-        
+
         mode_spec = config_manager.get_mode_spec(mode)
         mode_suffix = mode_spec.get("prompt_suffix", "")
         system_prompt = (
             f"{base_prompt} Specific goal: {mode_suffix} "
             f"Provide an immediate, direct, and concise explanation in plain English without conversational greetings, pleasantries, or introductory filler."
         )
-        
+
         ollama_url = config_manager.normalize_ollama_url(self.config.get("ollama_url", "http://127.0.0.1:11434"))
 
         # Auto-ensure Ollama daemon is running
@@ -1357,7 +2286,7 @@ class WatThisApp:
         # Model presence check & auto-fallback
         installed = config_manager.get_installed_ollama_models(ollama_url)
         if installed and target_model not in installed:
-            for cand in ["llama3.2:3b", "smollm2:1.7b", "llama3.2"]:
+            for cand in ["llama3.1:8b", "llama3.2:3b", "smollm2:1.7b", "llama3.2"]:
                 if cand in installed:
                     target_model = cand
                     break
@@ -1387,11 +2316,22 @@ class WatThisApp:
         if web_context:
             prompt = f"Live Context:\n{web_context}\n\nTarget text:\n{text}"
 
-        max_tokens = 320 if mode in ("explain", "simplify") else (600 if mode == "fix" else 800)
+        # Enrich with full screen context (active window title, app name, surrounding screen text)
+        sc = getattr(self, "screen_context", {})
+        if sc and sc.get("has_content"):
+            prompt = screen_context.format_prompt_with_screen_context(
+                highlighted_text=text,
+                screen_context=sc,
+                mode_prompt=prompt
+            )
+
+        num_ctx = spec.get("num_ctx", 2048)
+        max_tokens = 320 if mode in ("explain", "simplify", "regex", "translate") else (600 if mode in ("fix", "polish") else 800)
         options = {
             "num_predict": max_tokens,
-            "temperature": 0.2,
-            "top_p": 0.9,
+            "num_ctx": num_ctx,
+            "temperature": 0.15,
+            "top_p": 0.85,
             "top_k": 40
         }
 
